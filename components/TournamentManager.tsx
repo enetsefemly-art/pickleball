@@ -1,12 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Player, Match } from '../types';
-import { Users, GripVertical, Shuffle, Calendar, Lock, Unlock, Clock, Trophy, UploadCloud, Check, Trash2, Layers, Zap } from 'lucide-react';
+import { Users, GripVertical, Shuffle, Calendar, Lock, Unlock, Clock, Trophy, UploadCloud, Check, Trash2, Layers, Zap, Cloud, AlertCircle } from 'lucide-react';
 import { AutoMatchMakerModal } from './AutoMatchMakerModal';
 import { getMatches } from '../services/storageService'; // Helper to get all matches for Algo
 
 interface TournamentManagerProps {
   players: Player[];
-  onSaveMatches: (matches: Omit<Match, 'id'>[]) => void;
+  matches?: Match[]; // New prop for syncing
+  onSaveMatches: (matches: (Omit<Match, 'id'> & { id?: string })[]) => void;
+  onDeleteMatch?: (id: string) => void; // New prop for cleanup
 }
 
 interface Team {
@@ -36,10 +38,10 @@ interface DragData {
     matchIndex?: number;
 }
 
-// Key lưu trữ trạng thái giải đấu hiện tại
+// Key lưu trữ trạng thái giải đấu hiện tại (Local Storage Only)
 const TOURNAMENT_STATE_KEY = 'picklepro_tournament_active_state_v2';
 
-export const TournamentManager: React.FC<TournamentManagerProps> = ({ players, onSaveMatches }) => {
+export const TournamentManager: React.FC<TournamentManagerProps> = ({ players, matches = [], onSaveMatches, onDeleteMatch }) => {
   // Filter active players only
   const activePlayers = players.filter(p => p.isActive !== false);
 
@@ -104,11 +106,84 @@ export const TournamentManager: React.FC<TournamentManagerProps> = ({ players, o
       }));
   };
 
-  // --- INIT & SYNC ---
+  // --- SYNC FROM CLOUD (Pending Matches) ---
+  // If we find matches with score -1 in the props, it means there is an active tournament synced from cloud.
+  // We should prioritize this over local state.
+  useEffect(() => {
+      const pendingMatches = matches.filter(m => m.type === 'tournament' && (Number(m.score1) < 0 || Number(m.score2) < 0));
+      
+      if (pendingMatches.length > 0) {
+          // Reconstruct State from Pending Matches
+          
+          // 1. Extract Teams (Generate names if needed)
+          const newTeamsMap = new Map<string, Team>();
+          const newSchedule: TournamentMatch[] = [];
+          
+          const getTeamKey = (ids: string[]) => ids.sort().join('-');
+          let teamCounter = 1;
+
+          pendingMatches.forEach(m => {
+              // Helper to process team from IDs
+              const processTeam = (ids: string[]) => {
+                  const key = getTeamKey(ids);
+                  if (!newTeamsMap.has(key)) {
+                      const p1 = players.find(p => String(p.id) === String(ids[0])) || null;
+                      const p2 = players.find(p => String(p.id) === String(ids[1])) || null;
+                      
+                      newTeamsMap.set(key, {
+                          id: key, // Use hash as ID for consistency
+                          name: `Đội ${teamCounter++}`,
+                          player1: p1,
+                          player2: p2
+                      });
+                  }
+                  return newTeamsMap.get(key)!.id;
+              };
+
+              const t1Id = processTeam(m.team1);
+              const t2Id = processTeam(m.team2);
+
+              // Decode Meta Data from rankingPoints
+              // Rule: rankingPoints = round * 10 + court
+              const meta = m.rankingPoints || 11;
+              const round = Math.floor(meta / 10) || 1;
+              const court = (meta % 10) as 1 | 2 || 1;
+
+              newSchedule.push({
+                  id: m.id, // KEEP CLOUD ID for updates
+                  team1Id: t1Id,
+                  team2Id: t2Id,
+                  court: court,
+                  roundNumber: round,
+                  score1: '', // Reset score UI
+                  score2: '',
+                  isCompleted: false
+              });
+          });
+
+          // Set State
+          const reconstructedTeams = Array.from(newTeamsMap.values());
+          setTeams(reconstructedTeams);
+          setSchedule(newSchedule);
+          setIsLocked(true);
+          
+          // Use earliest date
+          if (pendingMatches[0]) {
+              setTournamentDate(pendingMatches[0].date.slice(0,16));
+          }
+
+      }
+  }, [matches, players]); // Re-run when matches update (sync happen)
+
+
+  // --- INIT & SYNC (LOCAL) ---
   const teamsRef = useRef<Team[]>([]);
   useEffect(() => { teamsRef.current = teams; }, [teams]);
 
   useEffect(() => {
+    // Only run this initialization if NOT locked (Synced)
+    if (isLocked) return;
+
     // 1. Initial Setup: Chỉ chạy nếu chưa có đội nào (cả trong RAM lẫn LocalStorage)
     if (teamsRef.current.length === 0 && activePlayers.length > 0) {
          setAvailablePlayers([...activePlayers]);
@@ -119,7 +194,6 @@ export const TournamentManager: React.FC<TournamentManagerProps> = ({ players, o
             player2: null
         }));
         setTeams(initialTeams);
-        // Chưa cần lưu ngay, để người dùng thao tác đã
         return;
     }
 
@@ -133,8 +207,6 @@ export const TournamentManager: React.FC<TournamentManagerProps> = ({ players, o
             player2: t.player2 ? activePlayers.find(p => p.id === t.player2!.id) || t.player2 : null,
         }));
         
-        // Chỉ setTeams nếu thực sự có thay đổi sâu để tránh render loop, 
-        // nhưng ở đây ta set luôn để đảm bảo UI hiển thị điểm mới nhất
         setTeams(updatedTeams);
         
         const inTeamIds = new Set<string>();
@@ -145,7 +217,7 @@ export const TournamentManager: React.FC<TournamentManagerProps> = ({ players, o
         
         setAvailablePlayers(activePlayers.filter(p => !inTeamIds.has(p.id)));
     }
-  }, [players]); // Watch 'players' to re-run filtering
+  }, [players, isLocked]);
 
   // --- COUNTDOWN LOGIC ---
   useEffect(() => {
@@ -165,7 +237,6 @@ export const TournamentManager: React.FC<TournamentManagerProps> = ({ players, o
             const minutes = Math.floor((distance % (1000 * 60 * 60)) / (1000 * 60));
             const seconds = Math.floor((distance % (1000 * 60)) / 1000);
             
-            // Format output: Nd hh:mm:ss
             const dPart = days > 0 ? `${days}d ` : '';
             const hPart = hours.toString().padStart(2, '0');
             const mPart = minutes.toString().padStart(2, '0');
@@ -181,14 +252,8 @@ export const TournamentManager: React.FC<TournamentManagerProps> = ({ players, o
   // --- HELPERS FOR RATING ---
   const getPlayerRating = (p: Player | null) => {
       if (!p) return 0;
-      // 1. Nếu có điểm rating chuẩn (thường < 20) thì dùng luôn
       if (p.tournamentRating !== undefined && p.tournamentRating > 0) return p.tournamentRating;
-      
-      // 2. Nếu không có, fallback về initialPoints
       const init = p.initialPoints || 0;
-      
-      // 3. Logic chuẩn hóa: Nếu điểm > 20 (tức là điểm Betting/ELO cũ), quy về 6.0 (trung bình)
-      // Nếu điểm <= 20, coi như đó là rating hợp lệ
       return init > 20 ? 6.0 : (init || 6.0);
   };
 
@@ -250,7 +315,6 @@ export const TournamentManager: React.FC<TournamentManagerProps> = ({ players, o
             if (playerToMove) {
                 setTeams(newTeams);
                 setAvailablePlayers(prev => prev.some(p => p.id === playerToMove!.id) ? prev : [...prev, playerToMove!]);
-                // Auto save draft state
                 persistTournamentState(newTeams, schedule, isLocked, tournamentDate);
             }
         }
@@ -296,7 +360,6 @@ export const TournamentManager: React.FC<TournamentManagerProps> = ({ players, o
         }
         setTeams(newTeams);
         setAvailablePlayers(newAvail);
-        // Auto save draft state
         persistTournamentState(newTeams, schedule, isLocked, tournamentDate);
     } catch (err) { console.error("Drop Error", err); }
   };
@@ -315,9 +378,6 @@ export const TournamentManager: React.FC<TournamentManagerProps> = ({ players, o
       const newSchedule = [...schedule];
       const [movedMatch] = newSchedule.splice(sourceIndex, 1);
       newSchedule.splice(targetIndex, 0, movedMatch);
-      // Recalculate courts and rounds based on new order is tricky with grouping
-      // For simplicity in this version, dragging reorders the array, but visually we might need to be careful with rounds
-      // Ideally we re-assign round numbers or just swap positions
       setSchedule(newSchedule);
       persistTournamentState(teams, newSchedule, isLocked, tournamentDate);
   };
@@ -335,8 +395,6 @@ export const TournamentManager: React.FC<TournamentManagerProps> = ({ players, o
         if (t.player2) allPlayers.push(t.player2);
     });
     
-    // Sắp xếp dựa trên RATING đã chuẩn hóa (High to Low)
-    // Đảm bảo người 1000 điểm không bị tính là rating 1000, mà là 6.0
     allPlayers.sort((a, b) => {
         return getPlayerRating(b) - getPlayerRating(a);
     });
@@ -344,7 +402,6 @@ export const TournamentManager: React.FC<TournamentManagerProps> = ({ players, o
     const newTeams: Team[] = [];
     const teamCount = Math.floor(allPlayers.length / 2);
     
-    // Thuật toán High-Low (Con rắn): Mạnh nhất + Yếu nhất
     for (let i = 0; i < teamCount; i++) {
         const p1 = allPlayers[i];
         const p2 = allPlayers[allPlayers.length - 1 - i];
@@ -362,14 +419,12 @@ export const TournamentManager: React.FC<TournamentManagerProps> = ({ players, o
 
   // Apply Auto Matchmaker Results
   const applyAutoMatches = (generatedMatches: any[]) => {
-      // 1. Transform generated matches into internal Team structure
       const newTeams: Team[] = [];
       const newSchedule: TournamentMatch[] = [];
       const usedPlayerIds = new Set<string>();
 
-      // Extract unique teams from matches
       let teamCounter = 1;
-      const teamMap = new Map<string, string>(); // 'p1-p2' -> teamId
+      const teamMap = new Map<string, string>();
 
       generatedMatches.forEach((m, idx) => {
           const processTeam = (gp: any) => {
@@ -410,15 +465,12 @@ export const TournamentManager: React.FC<TournamentManagerProps> = ({ players, o
           }
       });
 
-      // Update State
       setTeams(newTeams);
       setSchedule(newSchedule);
       
-      // Update Available Players (Leftovers)
       const leftovers = activePlayers.filter(p => !usedPlayerIds.has(p.id));
       setAvailablePlayers(leftovers);
 
-      // Save
       persistTournamentState(newTeams, newSchedule, isLocked, tournamentDate);
   };
 
@@ -447,7 +499,6 @@ export const TournamentManager: React.FC<TournamentManagerProps> = ({ players, o
         return;
     }
 
-    // 1. Generate All Round Robin Pairs
     const pool: { team1Id: string, team2Id: string }[] = [];
     const n = validTeams.length;
     for (let i = 0; i < n; i++) {
@@ -459,36 +510,26 @@ export const TournamentManager: React.FC<TournamentManagerProps> = ({ players, o
         }
     }
 
-    // 2. Shuffle Pool (Randomness)
     pool.sort(() => Math.random() - 0.5);
 
-    // 3. Heuristic Filling
     const orderedMatches: TournamentMatch[] = [];
-    
-    // Track consecutive matches for fatigue logic: Map<TeamId, CurrentStreak>
     const teamStreaks: Record<string, number> = {};
     validTeams.forEach(t => teamStreaks[t.id] = 0);
 
     let matchIdCounter = 0;
-    let roundCounter = 1; // Start Round Counting
+    let roundCounter = 1; 
 
-    // Loop until pool is empty
     while (pool.length > 0) {
-        // We try to fill Court 1 and Court 2 for this "Round"
         const roundMatches: TournamentMatch[] = [];
         const teamsPlayingInThisRound = new Set<string>();
 
-        // Helper to find best match from pool
         const findBestMatchIndex = () => {
-            // Filter candidates that don't conflict with current round
             const candidates = pool.map((m, idx) => ({ m, idx })).filter(item => {
                 return !teamsPlayingInThisRound.has(item.m.team1Id) && !teamsPlayingInThisRound.has(item.m.team2Id);
             });
 
             if (candidates.length === 0) return -1;
 
-            // Sort candidates by fatigue (Lowest combined streak first)
-            // This prevents teams from playing 3 times in a row if possible
             candidates.sort((a, b) => {
                 const streakA = (teamStreaks[a.m.team1Id] || 0) + (teamStreaks[a.m.team2Id] || 0);
                 const streakB = (teamStreaks[b.m.team1Id] || 0) + (teamStreaks[b.m.team2Id] || 0);
@@ -498,7 +539,6 @@ export const TournamentManager: React.FC<TournamentManagerProps> = ({ players, o
             return candidates[0].idx;
         };
 
-        // --- Fill Court 1 ---
         const idx1 = findBestMatchIndex();
         if (idx1 !== -1) {
             const matchData = pool.splice(idx1, 1)[0];
@@ -517,8 +557,7 @@ export const TournamentManager: React.FC<TournamentManagerProps> = ({ players, o
             teamsPlayingInThisRound.add(matchData.team2Id);
         }
 
-        // --- Fill Court 2 ---
-        const idx2 = findBestMatchIndex(); // This will respect teams added to teamsPlayingInThisRound from Court 1
+        const idx2 = findBestMatchIndex(); 
         if (idx2 !== -1) {
             const matchData = pool.splice(idx2, 1)[0];
             const match: TournamentMatch = {
@@ -536,7 +575,6 @@ export const TournamentManager: React.FC<TournamentManagerProps> = ({ players, o
             teamsPlayingInThisRound.add(matchData.team2Id);
         }
 
-        // Fallback: If we couldn't schedule ANY match in this round but pool is not empty
         if (roundMatches.length === 0 && pool.length > 0) {
              const matchData = pool.shift()!;
              const match: TournamentMatch = {
@@ -554,17 +592,16 @@ export const TournamentManager: React.FC<TournamentManagerProps> = ({ players, o
             teamsPlayingInThisRound.add(matchData.team2Id);
         }
 
-        // --- Update Streaks for Fatigue Logic ---
         validTeams.forEach(t => {
             if (teamsPlayingInThisRound.has(t.id)) {
                 teamStreaks[t.id] = (teamStreaks[t.id] || 0) + 1;
             } else {
-                teamStreaks[t.id] = 0; // Reset streak if they rested this round
+                teamStreaks[t.id] = 0;
             }
         });
 
         orderedMatches.push(...roundMatches);
-        roundCounter++; // Increment round number after filling courts
+        roundCounter++; 
     }
 
     setSchedule(orderedMatches);
@@ -575,18 +612,21 @@ export const TournamentManager: React.FC<TournamentManagerProps> = ({ players, o
       const val = value === '' ? '' : parseInt(value);
       const newSchedule = schedule.map(m => m.id === matchId ? { ...m, [field]: val } : m);
       setSchedule(newSchedule);
-      // Save scores while typing to avoid loss on accidental refresh
       persistTournamentState(teams, newSchedule, isLocked, tournamentDate);
   };
 
   const handleSaveAllResults = () => {
-      const matchesToSave = schedule.filter(m => !m.isCompleted && m.score1 !== '' && m.score2 !== '');
+      // 1. Identify completed matches (Valid scores)
+      const matchesToSave = schedule.filter(m => !m.isCompleted && m.score1 !== '' && m.score2 !== '' && Number(m.score1) >= 0 && Number(m.score2) >= 0);
+      
       if (matchesToSave.length === 0) {
           alert("Chưa có kết quả mới để lưu. Vui lòng nhập tỉ số.");
           return;
       }
-      const validMatches: Omit<Match, 'id'>[] = [];
+
+      const validMatches: (Omit<Match, 'id'> & { id?: string })[] = [];
       const completedIds: string[] = [];
+
       for (const m of matchesToSave) {
           const s1 = Number(m.score1);
           const s2 = Number(m.score2);
@@ -597,7 +637,12 @@ export const TournamentManager: React.FC<TournamentManagerProps> = ({ players, o
           }
           const team1 = teams.find(t => t.id === m.team1Id);
           const team2 = teams.find(t => t.id === m.team2Id);
+          
           if (team1 && team2 && team1.player1 && team1.player2 && team2.player1 && team2.player2) {
+              // Delete Pending version first if it exists
+              if (onDeleteMatch) onDeleteMatch(m.id);
+
+              // Create Completed version
               validMatches.push({
                   type: 'tournament',
                   date: new Date().toISOString(),
@@ -605,7 +650,9 @@ export const TournamentManager: React.FC<TournamentManagerProps> = ({ players, o
                   team2: [team2.player1.id, team2.player2.id],
                   score1: s1,
                   score2: s2,
-                  winner: s1 > s2 ? 1 : 2
+                  winner: s1 > s2 ? 1 : 2,
+                  // Don't carry ID here, let App generate new or use existing if we passed it (but we deleted old)
+                  // Actually, better to let App generate a fresh ID for History to avoid collisions with Pending ID
               });
               completedIds.push(m.id);
           }
@@ -613,27 +660,61 @@ export const TournamentManager: React.FC<TournamentManagerProps> = ({ players, o
       
       onSaveMatches(validMatches);
       
+      // Update local UI
       const newSchedule = schedule.map(m => completedIds.includes(m.id) ? { ...m, isCompleted: true } : m);
       setSchedule(newSchedule);
-      persistTournamentState(teams, newSchedule, isLocked, tournamentDate);
-
-      alert(`Đã lưu ${validMatches.length} trận đấu và đang đồng bộ Cloud!`);
+      
+      // We don't save Pending state here because we just cleaned up. 
+      // The Cloud sync will reflect the new history.
+      alert(`Đã lưu ${validMatches.length} trận đấu!`);
   };
 
+  // --- SYNC: CONFIRM SCHEDULE (Send Pending Matches to Cloud) ---
   const handleConfirmSchedule = () => {
     if (schedule.length === 0) {
         alert("Vui lòng tạo lịch trước khi xác nhận.");
         return;
     }
+
+    const pendingMatches: (Omit<Match, 'id'> & { id?: string })[] = [];
+    
+    schedule.forEach(m => {
+        const team1 = teams.find(t => t.id === m.team1Id);
+        const team2 = teams.find(t => t.id === m.team2Id);
+        if (team1 && team2 && team1.player1 && team1.player2 && team2.player1 && team2.player2) {
+            pendingMatches.push({
+                id: m.id, // Keep local ID as Pending ID
+                type: 'tournament',
+                date: new Date(tournamentDate).toISOString(), // Use Tournament Start Time
+                team1: [team1.player1.id, team1.player2.id],
+                team2: [team2.player1.id, team2.player2.id],
+                score1: -1, // INDICATOR FOR PENDING
+                score2: -1,
+                winner: 1, // Dummy
+                rankingPoints: (m.roundNumber * 10) + m.court // ENCODE META DATA (Round + Court)
+            });
+        }
+    });
+
+    onSaveMatches(pendingMatches);
     setIsLocked(true);
-    // Save state with Lock = true
-    persistTournamentState(teams, schedule, true, tournamentDate);
+    // Don't rely on LocalStorage for "Locked" state anymore, rely on Cloud (matches prop)
+    // But setting it locally gives immediate feedback
   };
   
+  // --- SYNC: UNLOCK (Delete Pending Matches from Cloud) ---
   const handleUnlock = () => {
-      setIsLocked(false);
-      // Update state with Lock = false, allow editing again
-      persistTournamentState(teams, schedule, false, tournamentDate);
+      if (window.confirm("Hành động này sẽ xóa toàn bộ lịch thi đấu CHƯA ĐẤU trên hệ thống. Bạn có chắc không?")) {
+          // Find pending matches in current schedule
+          const pendingIds = schedule.filter(m => !m.isCompleted).map(m => m.id);
+          
+          if (onDeleteMatch) {
+              pendingIds.forEach(id => onDeleteMatch(id));
+          }
+          
+          setIsLocked(false);
+          // Don't clear schedule locally to allow editing, but it's gone from cloud
+      }
   }
 
   const renderScheduleList = (cols: 1 | 2) => {
@@ -845,8 +926,8 @@ export const TournamentManager: React.FC<TournamentManagerProps> = ({ players, o
                             </div>
                         </div>
                         
-                        <div className="flex items-center gap-3 mb-4">
-                             <span className="text-slate-400 font-bold text-sm uppercase tracking-wider">Thời gian còn lại</span>
+                        <div className="flex items-center gap-2 mb-4 bg-green-50 text-green-700 px-3 py-1 rounded-full text-xs font-bold border border-green-200">
+                             <Cloud className="w-3 h-3" /> Đã đồng bộ lịch thi đấu công khai
                         </div>
 
                         <div className="flex items-center gap-2 px-6 py-3 bg-slate-900 text-red-500 rounded-2xl border-4 border-slate-100 shadow-xl mb-4 transform scale-105">
@@ -862,14 +943,14 @@ export const TournamentManager: React.FC<TournamentManagerProps> = ({ players, o
                                 onClick={handleSaveAllResults}
                                 className="flex-[2] py-4 bg-green-600 hover:bg-green-700 text-white font-bold rounded-xl text-lg shadow-lg flex items-center justify-center gap-2 uppercase tracking-wide transform active:scale-[0.98] transition-all"
                             >
-                                <UploadCloud className="w-6 h-6" /> CẬP NHẬT KẾT QUẢ & ĐỒNG BỘ
+                                <UploadCloud className="w-6 h-6" /> LƯU KẾT QUẢ & ĐỒNG BỘ
                             </button>
 
                             <button 
                                 onClick={handleUnlock}
-                                className="md:w-auto px-6 py-4 bg-white hover:bg-slate-50 text-slate-500 hover:text-red-500 font-bold rounded-xl text-sm flex items-center justify-center gap-2 border-2 border-slate-200 transition-colors"
+                                className="md:w-auto px-6 py-4 bg-white hover:bg-slate-50 text-red-500 hover:text-red-700 font-bold rounded-xl text-sm flex items-center justify-center gap-2 border-2 border-red-100 transition-colors"
                             >
-                                <Unlock className="w-4 h-4" /> Mở Khóa
+                                <Trash2 className="w-4 h-4" /> Hủy Giải Đấu
                             </button>
                         </div>
                     </div>
@@ -908,7 +989,7 @@ export const TournamentManager: React.FC<TournamentManagerProps> = ({ players, o
                                 disabled={schedule.length === 0}
                                 className="px-4 py-2 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white font-bold rounded-lg text-sm shadow-md flex items-center gap-2"
                             >
-                                <Lock className="w-4 h-4" /> Xác Nhận Lịch
+                                <Lock className="w-4 h-4" /> Xác Nhận & Đồng Bộ
                             </button>
                         </div>
                     </div>

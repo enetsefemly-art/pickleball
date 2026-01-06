@@ -236,6 +236,9 @@ export const getMatchRatingDetails = (
 
     // 3. Replay loop
     for (const match of sortedMatches) {
+        // IGNORE PENDING MATCHES (Score -1)
+        if (Number(match.score1) < 0 || Number(match.score2) < 0) continue;
+
         const matchDate = new Date(match.date);
         const isRuleV2 = matchDate.getTime() >= RATING_RULE_2_DATE.getTime();
         const isTarget = match.id === targetMatchId;
@@ -395,6 +398,9 @@ export const getDailyRatingHistory = (players: Player[], matches: Match[]) => {
     let currentDayStr = '';
 
     sortedMatches.forEach(match => {
+        // IGNORE PENDING MATCHES
+        if (Number(match.score1) < 0 || Number(match.score2) < 0) return;
+
         // --- PROCESS RATING UPDATE (Copy of calculatePlayerStats Logic) ---
         const matchDate = new Date(match.date);
         const dateStr = match.date.split('T')[0];
@@ -532,14 +538,18 @@ export const calculatePlayerStats = (players: Player[], matches: Match[]): Playe
   const sortedMatches = [...matches].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
   sortedMatches.forEach(match => {
+    // --- IGNORE PENDING MATCHES (-1 scores) ---
+    // This allows TournamentManager to save "Draft/Pending" state to the Cloud without affecting stats
+    let s1 = Number(match.score1);
+    let s2 = Number(match.score2);
+    
+    if (s1 < 0 || s2 < 0) return;
+
     const matchDate = new Date(match.date);
     const isBetting = match.type === 'betting' || !match.type; 
     const bettingPoints = (isBetting && match.rankingPoints) ? Number(match.rankingPoints) : 0; 
     
     // --- XỬ LÝ ĐIỂM SỐ & WINNER ---
-    // Ép kiểu số an toàn
-    let s1 = Number(match.score1);
-    let s2 = Number(match.score2);
     if (isNaN(s1)) s1 = 0;
     if (isNaN(s2)) s2 = 0;
 
@@ -704,6 +714,9 @@ export const calculatePlayerStats = (players: Player[], matches: Match[]): Playe
   const matchesByMonth = new Map<string, Match[]>(); // Key: "YYYY-MM"
 
   tournamentMatches.forEach(m => {
+      // IGNORE PENDING
+      if (Number(m.score1) < 0 || Number(m.score2) < 0) return;
+
       // Cũng bỏ qua các trận hòa trong tính giải
       if (Number(m.score1) === Number(m.score2)) return;
 

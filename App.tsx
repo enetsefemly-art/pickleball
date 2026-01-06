@@ -15,7 +15,7 @@ import { ChangelogModal } from './components/ChangelogModal'; // New Import
 import { LayoutDashboard, History, Trophy, PlusCircle, Zap, Cloud, Loader2, CheckCircle2, AlertCircle, CloudOff, Swords, UserCog, Scale, Plus, BrainCircuit, Users, Bell } from 'lucide-react';
 
 // Current App Version - Bump this to trigger red dot for users
-const APP_VERSION = '3.2.0';
+const APP_VERSION = '3.3.0';
 
 const App: React.FC = () => {
   const [players, setPlayers] = useState<Player[]>([]);
@@ -139,13 +139,15 @@ const App: React.FC = () => {
     setActiveTab('matches');
   };
 
-  const handleTournamentSave = (matchesData: Omit<Match, 'id'>[]) => {
+  // Allow passing IDs if present (for updating Pending matches)
+  const handleTournamentSave = (matchesData: (Omit<Match, 'id'> & { id?: string })[]) => {
       const newMatches: Match[] = matchesData.map((m, index) => ({
           ...m,
-          id: (Date.now() + index).toString()
+          id: m.id || (Date.now() + index).toString()
       }));
 
       const updatedMatches = [...matches, ...newMatches];
+      // Note: calculatePlayerStats will automatically ignore negative scores (pending matches)
       const updatedPlayers = calculatePlayerStats(players, updatedMatches);
 
       setMatches(updatedMatches);
@@ -158,6 +160,7 @@ const App: React.FC = () => {
 
   const handleDeleteMatch = (id: string) => {
      const updatedMatches = matches.filter(m => m.id !== id);
+     // Optimization: Only recalc if match count changed
      if (matches.length === updatedMatches.length) return;
 
      const updatedPlayers = calculatePlayerStats(players, updatedMatches);
@@ -361,7 +364,14 @@ const App: React.FC = () => {
 
             {activeTab === 'ai-match' && <AiMatchmaker players={players} matches={matches} />}
             
-            {activeTab === 'tournament' && <TournamentManager players={players} onSaveMatches={handleTournamentSave} />}
+            {activeTab === 'tournament' && (
+                <TournamentManager 
+                    players={players} 
+                    matches={matches} // New Prop for Sync
+                    onSaveMatches={handleTournamentSave} 
+                    onDeleteMatch={handleDeleteMatch} // New Prop for Sync
+                />
+            )}
             
             {activeTab === 'players' && (
                 <PlayerManager 
