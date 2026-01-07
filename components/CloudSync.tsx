@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Player, Match, TournamentState } from '../types';
 import { syncToCloud, syncFromCloud } from '../services/googleSheetService';
-import { Cloud, Download, Upload, CheckCircle, AlertCircle, Loader2, Terminal } from 'lucide-react';
+import { Cloud, Download, Upload, CheckCircle, AlertCircle, Loader2, Terminal, Swords } from 'lucide-react';
 import { getTournamentState, saveTournamentState } from '../services/storageService';
 
 interface CloudSyncProps {
@@ -36,11 +36,17 @@ export const CloudSync: React.FC<CloudSyncProps> = ({ players, matches, onDataLo
       // Get current local tournament state to upload
       const currentTournament = getTournamentState();
       
-      addLog(`Đang gửi ${players.length} người chơi, ${matches.length} trận đấu và dữ liệu giải đấu...`);
+      addLog(`Gói tin: ${players.length} người, ${matches.length} trận.`);
+      if (currentTournament && currentTournament.isActive) {
+          addLog(`Kèm theo: Giải đấu đang diễn ra (${currentTournament.teams.length} đội).`);
+      } else {
+          addLog("Không có giải đấu nào đang diễn ra.");
+      }
+
       await syncToCloud(players, matches, currentTournament);
-      addLog("Thành công: Dữ liệu đã được lưu an toàn trên Google Sheet.");
+      addLog("✅ TẢI LÊN THÀNH CÔNG: Dữ liệu đã lưu trên Google Sheet.");
     } catch (e) {
-      addLog("LỖI: " + (e instanceof Error ? e.message : String(e)));
+      addLog("❌ LỖI: " + (e instanceof Error ? e.message : String(e)));
     } finally {
       setIsLoading(false);
       setLoadingType(null);
@@ -50,7 +56,8 @@ export const CloudSync: React.FC<CloudSyncProps> = ({ players, matches, onDataLo
   const handleDownloadClick = async () => {
     if (!confirmDownload) {
         setConfirmDownload(true);
-        addLog("Yêu cầu xác nhận: Dữ liệu trên máy sẽ bị thay thế. Nhấn nút Tải Về lần nữa để đồng ý.");
+        addLog("⚠️ CẢNH BÁO: Dữ liệu trên máy này sẽ bị thay thế bởi Cloud.");
+        addLog("👉 Nhấn nút Tải Về lần nữa để xác nhận.");
         // Reset confirm state after 5 seconds if not clicked
         setTimeout(() => {
             setConfirmDownload(false);
@@ -64,20 +71,23 @@ export const CloudSync: React.FC<CloudSyncProps> = ({ players, matches, onDataLo
     setIsLoading(true);
     setLoadingType('download');
     setLogs([]); // Clear old logs
-    addLog("Bắt đầu kết nối máy chủ Google...");
+    addLog("Đang kết nối máy chủ Google...");
 
     try {
       const data = await syncFromCloud();
-      addLog(`Đã nhận dữ liệu: ${data.players.length} người chơi, ${data.matches.length} trận.`);
-      if (data.tournament) {
-          addLog("Đã đồng bộ trạng thái giải đấu đang diễn ra.");
+      addLog(`✅ Đã nhận: ${data.players.length} người chơi, ${data.matches.length} trận.`);
+      
+      if (data.tournament && data.tournament.isActive) {
+          addLog(`🏆 Đã tải về: Giải đấu tháng ${data.tournament.tournamentDate.slice(5,7)} (${data.tournament.schedule.length} trận).`);
+      } else {
+          addLog("ℹ️ Cloud không có giải đấu nào đang chạy.");
       }
       
       onDataLoaded(data.players, data.matches, data.tournament);
-      addLog("Thành công: Dữ liệu App đã được cập nhật!");
+      addLog("✅ Đồng bộ hoàn tất!");
     } catch (e) {
       console.error("Download Error:", e);
-      addLog("LỖI NGHIÊM TRỌNG: " + (e instanceof Error ? e.message : String(e)));
+      addLog("❌ LỖI NGHIÊM TRỌNG: " + (e instanceof Error ? e.message : String(e)));
       addLog("Vui lòng thử lại hoặc kiểm tra kết nối mạng.");
     } finally {
       setIsLoading(false);
@@ -157,14 +167,15 @@ export const CloudSync: React.FC<CloudSyncProps> = ({ players, matches, onDataLo
                 <div className="flex items-center gap-2 text-xs font-bold text-slate-500 mb-2 uppercase tracking-wider">
                     <Terminal className="w-3 h-3" /> Nhật ký hệ thống
                 </div>
-                <div className="bg-slate-900 rounded-lg p-3 h-32 overflow-y-auto font-mono text-xs border border-slate-800 shadow-inner custom-scrollbar">
+                <div className="bg-slate-900 rounded-lg p-3 h-40 overflow-y-auto font-mono text-xs border border-slate-800 shadow-inner custom-scrollbar">
                     {logs.length === 0 ? (
                         <span className="text-slate-600 italic">Chờ thao tác...</span>
                     ) : (
                         logs.map((log, idx) => (
-                            <div key={idx} className={`mb-1 ${
+                            <div key={idx} className={`mb-1 pb-1 border-b border-slate-800/50 last:border-0 ${
                                 log.includes("LỖI") ? 'text-red-400 font-bold' : 
-                                log.includes("Thành công") ? 'text-green-400 font-bold' : 
+                                log.includes("THÀNH CÔNG") || log.includes("Đã tải về") ? 'text-green-400 font-bold' : 
+                                log.includes("Giải đấu") ? 'text-yellow-400' :
                                 'text-slate-300'
                             }`}>
                                 {log}
