@@ -1,7 +1,7 @@
 import { Player, Match, TournamentState } from '../types';
 
 // URL API được gắn cứng
-const API_URL = 'https://script.google.com/macros/s/AKfycbyAt8vW_VZFvbt5FeQN1cmlPc8W19D09GdaLquUIuzgYQURN4c1Ym0UAoAZLbT7oLn9/exec';
+const API_URL = 'https://script.google.com/macros/s/AKfycbxpLj986RP9SzKcLjzjFhDC6qtyAvFUg2VdHWTlwHmmg-jZEIeNnpkZxtoP6GBHVTtG/exec';
 
 export const getApiUrl = () => API_URL;
 
