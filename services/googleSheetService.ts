@@ -1,4 +1,4 @@
-import { Player, Match } from '../types';
+import { Player, Match, TournamentState } from '../types';
 
 // URL API được gắn cứng
 const API_URL = 'https://script.google.com/macros/s/AKfycbxpLj986RP9SzKcLjzjFhDC6qtyAvFUg2VdHWTlwHmmg-jZEIeNnpkZxtoP6GBHVTtG/exec';
@@ -14,6 +14,7 @@ interface SyncResponse {
     data?: {
         players: Player[];
         matches: Match[];
+        tournament?: TournamentState | null; // Added tournament field
     };
     message?: string;
 }
@@ -35,7 +36,7 @@ const fetchWithTimeout = async (resource: string, options: RequestInit = {}, tim
     }
 };
 
-export const syncToCloud = async (players: Player[], matches: Match[]): Promise<boolean> => {
+export const syncToCloud = async (players: Player[], matches: Match[], tournament: TournamentState | null = null): Promise<boolean> => {
     const url = getApiUrl();
     console.log("Starting Cloud Sync (Upload)...");
     
@@ -47,7 +48,7 @@ export const syncToCloud = async (players: Player[], matches: Match[]): Promise<
             headers: {
                 "Content-Type": "text/plain;charset=utf-8",
             },
-            body: JSON.stringify({ players, matches }),
+            body: JSON.stringify({ players, matches, tournament }), // Include tournament state
         }, 30000); // 30s cho upload
 
         const text = await response.text();
@@ -71,7 +72,7 @@ export const syncToCloud = async (players: Player[], matches: Match[]): Promise<
     }
 };
 
-export const syncFromCloud = async (): Promise<{ players: Player[], matches: Match[] }> => {
+export const syncFromCloud = async (): Promise<{ players: Player[], matches: Match[], tournament: TournamentState | null }> => {
     const url = getApiUrl();
     const finalUrl = `${url}?nocache=${Date.now()}`;
     
@@ -109,7 +110,11 @@ export const syncFromCloud = async (): Promise<{ players: Player[], matches: Mat
         }
 
         if (result.status === 'success' && result.data) {
-            return result.data;
+            return {
+                players: result.data.players || [],
+                matches: result.data.matches || [],
+                tournament: result.data.tournament || null // Handle tournament data
+            };
         } else {
             throw new Error(result.message || 'Lỗi: Cấu trúc dữ liệu không hợp lệ.');
         }

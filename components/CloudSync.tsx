@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { Player, Match } from '../types';
+import { Player, Match, TournamentState } from '../types';
 import { syncToCloud, syncFromCloud } from '../services/googleSheetService';
 import { Cloud, Download, Upload, CheckCircle, AlertCircle, Loader2, Terminal } from 'lucide-react';
+import { getTournamentState, saveTournamentState } from '../services/storageService';
 
 interface CloudSyncProps {
   players: Player[];
   matches: Match[];
-  onDataLoaded: (players: Player[], matches: Match[]) => void;
+  onDataLoaded: (players: Player[], matches: Match[], tournament: TournamentState | null) => void;
   onClose: () => void;
 }
 
@@ -32,8 +33,11 @@ export const CloudSync: React.FC<CloudSyncProps> = ({ players, matches, onDataLo
     addLog("Bắt đầu tải lên dữ liệu...");
     
     try {
-      addLog(`Đang gửi ${players.length} người chơi và ${matches.length} trận đấu...`);
-      await syncToCloud(players, matches);
+      // Get current local tournament state to upload
+      const currentTournament = getTournamentState();
+      
+      addLog(`Đang gửi ${players.length} người chơi, ${matches.length} trận đấu và dữ liệu giải đấu...`);
+      await syncToCloud(players, matches, currentTournament);
       addLog("Thành công: Dữ liệu đã được lưu an toàn trên Google Sheet.");
     } catch (e) {
       addLog("LỖI: " + (e instanceof Error ? e.message : String(e)));
@@ -65,8 +69,11 @@ export const CloudSync: React.FC<CloudSyncProps> = ({ players, matches, onDataLo
     try {
       const data = await syncFromCloud();
       addLog(`Đã nhận dữ liệu: ${data.players.length} người chơi, ${data.matches.length} trận.`);
+      if (data.tournament) {
+          addLog("Đã đồng bộ trạng thái giải đấu đang diễn ra.");
+      }
       
-      onDataLoaded(data.players, data.matches);
+      onDataLoaded(data.players, data.matches, data.tournament);
       addLog("Thành công: Dữ liệu App đã được cập nhật!");
     } catch (e) {
       console.error("Download Error:", e);

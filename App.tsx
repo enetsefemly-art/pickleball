@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Player, Match, TabView } from './types';
-import { getPlayers, getMatches, saveMatches, savePlayers, calculatePlayerStats } from './services/storageService';
+import { Player, Match, TabView, TournamentState } from './types';
+import { getPlayers, getMatches, saveMatches, savePlayers, calculatePlayerStats, getTournamentState, saveTournamentState } from './services/storageService';
 import { getApiUrl, syncToCloud, syncFromCloud } from './services/googleSheetService';
 import { Leaderboard } from './components/Leaderboard';
 import { BatchMatchRecorder } from './components/BatchMatchRecorder';
@@ -11,15 +11,18 @@ import { TournamentManager } from './components/TournamentManager';
 import { Analysis } from './components/Analysis';
 import { AiMatchmaker } from './components/AiMatchmaker'; 
 import { CloudSync } from './components/CloudSync';
-import { ChangelogModal } from './components/ChangelogModal'; // New Import
+import { ChangelogModal } from './components/ChangelogModal'; 
 import { LayoutDashboard, History, Trophy, PlusCircle, Zap, Cloud, Loader2, CheckCircle2, AlertCircle, CloudOff, Swords, UserCog, Scale, Plus, BrainCircuit, Users, Bell } from 'lucide-react';
 
 // Current App Version - Bump this to trigger red dot for users
-const APP_VERSION = '3.3.0';
+const APP_VERSION = '3.3.1'; // Bumped for Tournament Sync update
 
 const App: React.FC = () => {
   const [players, setPlayers] = useState<Player[]>([]);
   const [matches, setMatches] = useState<Match[]>([]);
+  // Manage Tournament State Globally
+  const [tournamentState, setTournamentState] = useState<TournamentState | null>(null);
+  
   const [activeTab, setActiveTab] = useState<TabView | 'tournament'>('dashboard');
   
   // Recording Mode: 'none' or 'batch'
@@ -35,15 +38,15 @@ const App: React.FC = () => {
 
   // --- SYNC QUEUE REFS ---
   const isSyncingRef = useRef(false);
-  const pendingSyncRef = useRef<{players: Player[], matches: Match[]} | null>(null);
+  const pendingSyncRef = useRef<{players: Player[], matches: Match[], tournament: TournamentState | null} | null>(null);
 
   // --- AUTO SYNC LOGIC ---
-  const performAutoSync = async (currentPlayers: Player[], currentMatches: Match[]) => {
+  const performAutoSync = async (currentPlayers: Player[], currentMatches: Match[], currentTournament: TournamentState | null) => {
     const url = getApiUrl();
     if (!url) return;
 
     if (isSyncingRef.current) {
-        pendingSyncRef.current = { players: currentPlayers, matches: currentMatches };
+        pendingSyncRef.current = { players: currentPlayers, matches: currentMatches, tournament: currentTournament };
         return;
     }
 
@@ -51,7 +54,7 @@ const App: React.FC = () => {
     setSyncStatus('syncing');
 
     try {
-        await syncToCloud(currentPlayers, currentMatches);
+        await syncToCloud(currentPlayers, currentMatches, currentTournament);
         setSyncStatus('success');
         setTimeout(() => setSyncStatus(prev => prev === 'success' ? 'idle' : prev), 2000);
     } catch (e) {
@@ -60,9 +63,9 @@ const App: React.FC = () => {
     } finally {
         isSyncingRef.current = false;
         if (pendingSyncRef.current) {
-            const { players: nextPlayers, matches: nextMatches } = pendingSyncRef.current;
+            const { players: nextPlayers, matches: nextMatches, tournament: nextTournament } = pendingSyncRef.current;
             pendingSyncRef.current = null;
-            performAutoSync(nextPlayers, nextMatches);
+            performAutoSync(nextPlayers, nextMatches, nextTournament);
         }
     }
   };
@@ -72,10 +75,12 @@ const App: React.FC = () => {
     const initData = async () => {
       const localMatches = getMatches();
       const localPlayers = getPlayers();
+      const localTournament = getTournamentState();
       const localStats = calculatePlayerStats(localPlayers, localMatches);
       
       setMatches(localMatches);
       setPlayers(localStats);
+      setTournamentState(localTournament);
 
       // Check Version for Changelog
       const lastSeenVersion = localStorage.getItem('picklepro_last_version');
@@ -92,8 +97,11 @@ const App: React.FC = () => {
           
           setMatches(cloudData.matches);
           setPlayers(cloudStats);
+          setTournamentState(cloudData.tournament); // Sync Tournament
+          
           saveMatches(cloudData.matches);
           savePlayers(cloudStats);
+          saveTournamentState(cloudData.tournament); // Save local
 
           setSyncStatus('success');
           setTimeout(() => setSyncStatus('idle'), 2000);
@@ -108,13 +116,17 @@ const App: React.FC = () => {
   }, []);
 
   // --- HANDLERS ---
-  const handleCloudDataLoaded = (newPlayers: Player[], newMatches: Match[]) => {
+  const handleCloudDataLoaded = (newPlayers: Player[], newMatches: Match[], newTournament: TournamentState | null) => {
       savePlayers(newPlayers);
       saveMatches(newMatches);
+      saveTournamentState(newTournament);
+      
       const recalculatedPlayers = calculatePlayerStats(newPlayers, newMatches);
       setMatches(newMatches);
       setPlayers(recalculatedPlayers);
+      setTournamentState(newTournament);
       savePlayers(recalculatedPlayers);
+      
       setSyncStatus('success');
   };
 
@@ -132,22 +144,21 @@ const App: React.FC = () => {
     saveMatches(updatedMatches);
     savePlayers(updatedPlayers);
 
-    performAutoSync(updatedPlayers, updatedMatches);
+    performAutoSync(updatedPlayers, updatedMatches, tournamentState);
 
     alert("Lưu kết quả thành công!");
     setRecordingMode('none');
     setActiveTab('matches');
   };
 
-  // Allow passing IDs if present (for updating Pending matches)
-  const handleTournamentSave = (matchesData: (Omit<Match, 'id'> & { id?: string })[]) => {
+  // Called when a match is finished in tournament
+  const handleTournamentSaveMatch = (matchesData: (Omit<Match, 'id'> & { id?: string })[]) => {
       const newMatches: Match[] = matchesData.map((m, index) => ({
           ...m,
           id: m.id || (Date.now() + index).toString()
       }));
 
       const updatedMatches = [...matches, ...newMatches];
-      // Note: calculatePlayerStats will automatically ignore negative scores (pending matches)
       const updatedPlayers = calculatePlayerStats(players, updatedMatches);
 
       setMatches(updatedMatches);
@@ -155,12 +166,20 @@ const App: React.FC = () => {
       saveMatches(updatedMatches);
       savePlayers(updatedPlayers);
 
-      performAutoSync(updatedPlayers, updatedMatches);
+      // We don't trigger sync here explicitly because updateTournamentState will likely be called immediately after
+      // by the TournamentManager to update the schedule status.
+  };
+
+  // Called whenever tournament state changes (new schedule, score update, finished)
+  const handleUpdateTournamentState = (newState: TournamentState | null) => {
+      setTournamentState(newState);
+      saveTournamentState(newState);
+      // Trigger cloud sync for everyone to see the schedule
+      performAutoSync(players, matches, newState);
   };
 
   const handleDeleteMatch = (id: string) => {
      const updatedMatches = matches.filter(m => m.id !== id);
-     // Optimization: Only recalc if match count changed
      if (matches.length === updatedMatches.length) return;
 
      const updatedPlayers = calculatePlayerStats(players, updatedMatches);
@@ -170,7 +189,7 @@ const App: React.FC = () => {
      saveMatches(updatedMatches);
      savePlayers(updatedPlayers);
 
-     performAutoSync(updatedPlayers, updatedMatches);
+     performAutoSync(updatedPlayers, updatedMatches, tournamentState);
   };
 
   const handleAddPlayer = (name: string, initialPoints: number) => {
@@ -191,14 +210,14 @@ const App: React.FC = () => {
     const updatedPlayers = [...players, newPlayer];
     setPlayers(updatedPlayers);
     savePlayers(updatedPlayers);
-    performAutoSync(updatedPlayers, matches);
+    performAutoSync(updatedPlayers, matches, tournamentState);
   };
 
   const handleDeletePlayer = (id: string) => {
     const updatedPlayers = players.filter(p => p.id !== id);
     setPlayers(updatedPlayers);
     savePlayers(updatedPlayers);
-    performAutoSync(updatedPlayers, matches);
+    performAutoSync(updatedPlayers, matches, tournamentState);
   };
 
   const handleTogglePlayerStatus = (id: string) => {
@@ -207,7 +226,7 @@ const App: React.FC = () => {
       );
       setPlayers(updatedPlayers);
       savePlayers(updatedPlayers);
-      performAutoSync(updatedPlayers, matches);
+      performAutoSync(updatedPlayers, matches, tournamentState);
   };
 
   const handleOpenChangelog = () => {
@@ -218,7 +237,6 @@ const App: React.FC = () => {
 
   // --- COMPONENTS ---
   
-  // Header Nav Button (Desktop)
   const HeaderNavBtn = ({ tab, label }: { tab: any; label: string }) => (
       <button
           onClick={() => { setActiveTab(tab); setRecordingMode('none'); }}
@@ -232,7 +250,6 @@ const App: React.FC = () => {
       </button>
   );
 
-  // Sync Indicator
   const SyncStatusIcon = () => {
       const url = getApiUrl();
       if (!url) return <CloudOff className="w-5 h-5 text-slate-500" />;
@@ -367,9 +384,11 @@ const App: React.FC = () => {
             {activeTab === 'tournament' && (
                 <TournamentManager 
                     players={players} 
-                    matches={matches} // New Prop for Sync
-                    onSaveMatches={handleTournamentSave} 
-                    onDeleteMatch={handleDeleteMatch} // New Prop for Sync
+                    matches={matches} 
+                    tournamentData={tournamentState}
+                    onUpdateTournament={handleUpdateTournamentState}
+                    onSaveMatches={handleTournamentSaveMatch} 
+                    onDeleteMatch={handleDeleteMatch}
                 />
             )}
             

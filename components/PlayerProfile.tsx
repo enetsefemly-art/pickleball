@@ -1,8 +1,9 @@
 import React, { useMemo, useState } from 'react';
 import { Player, Match } from '../types';
 import { Card } from './Card';
-import { Trophy, TrendingUp, DollarSign, X, AlertTriangle, Target, Gamepad2, Award, Handshake, HeartCrack, Users, List, Calendar, ChevronRight, Activity } from 'lucide-react';
+import { Trophy, TrendingUp, DollarSign, X, AlertTriangle, Target, Gamepad2, Award, Handshake, HeartCrack, Users, List, Calendar, ChevronRight, Activity, Gift } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, ReferenceLine, Cell } from 'recharts';
+import { getDailyRatingHistory, getTournamentStandings } from '../services/storageService';
 
 interface PlayerProfileProps {
   player: Player;
@@ -26,22 +27,6 @@ interface PartnerStats {
     winsTogether: number;
     winRate: number;
 }
-
-// --- CONSTANTS FOR RATING SIMULATION (Must match storageService) ---
-const RATING_START_DATE = new Date('2024-12-16T00:00:00');
-const RATING_RULE_2_DATE = new Date('2026-01-01T00:00:00');
-const MAX_RATING_V1 = 6.0;
-const MIN_RATING_V1 = 2.0;
-const RATING_STEP_V1 = 0.1;
-// Rule 2.0
-const V2_RATING_MIN = 2.0;
-const V2_RATING_MAX = 6.0;
-const V2_WIN_SCORE = 11.0;
-const V2_TAU = 0.45;
-const V2_K = 0.18;
-const V2_ALPHA = 0.55;
-const V2_BETA = 1.4;
-const V2_MAX_CHANGE = 0.14;
 
 export const PlayerProfile: React.FC<PlayerProfileProps> = ({ player, players, matches, onClose }) => {
   const [activeTab, setActiveTab] = useState<'overview' | 'history'>('overview');
@@ -261,119 +246,62 @@ export const PlayerProfile: React.FC<PlayerProfileProps> = ({ player, players, m
 
   // --- DAILY SUMMARY LOGIC (WITH RATING SIMULATION) ---
   const dailySummary = useMemo(() => {
-        // A. Simulate Rating Changes for ALL matches to get accurate deltas
-        const ratingDeltaMap = new Map<string, number>(); // Date -> Total Delta for this player
-        const tempRatings = new Map<string, number>();
-        
-        // Init ratings
-        players.forEach(p => {
-            const r = typeof p.initialPoints === 'number' ? p.initialPoints : 1000;
-            tempRatings.set(String(p.id), r);
-        });
-
-        // Sort ALL matches (not just player matches) to replicate history
-        const allSortedMatches = [...matches].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
         const currentPid = String(player.id);
-
-        allSortedMatches.forEach(m => {
-            let s1 = Number(m.score1);
-            let s2 = Number(m.score2);
-            if (isNaN(s1)) s1 = 0; if (isNaN(s2)) s2 = 0;
-            if (s1 === s2) return;
-
-            const t1Ids = m.team1.map(String);
-            const t2Ids = m.team2.map(String);
-            const winner = s1 > s2 ? 1 : 2;
-            const isTeam1Win = winner === 1;
-
-            const matchDate = new Date(m.date);
-            const dateKey = m.date.split('T')[0];
-            const isRuleV2 = matchDate.getTime() >= RATING_RULE_2_DATE.getTime();
-            const isLegacyV1 = matchDate.getTime() >= RATING_START_DATE.getTime() && !isRuleV2;
-
-            const getR = (id: string) => tempRatings.get(id) || 3.0;
-            const setR = (id: string, val: number) => tempRatings.set(id, val);
-
-            // Logic Simulation (Simplified Copy of storageService)
-            if (isLegacyV1) {
-                const applyV1 = (ids: string[], isWin: boolean) => {
-                    ids.forEach(pid => {
-                        const oldR = getR(pid);
-                        let newR = oldR;
-                        if (isWin) {
-                            newR += RATING_STEP_V1;
-                            if (newR > MAX_RATING_V1) newR = MAX_RATING_V1;
-                        } else {
-                            if (newR > MIN_RATING_V1) {
-                                newR -= RATING_STEP_V1;
-                                if (newR < MIN_RATING_V1) newR = MIN_RATING_V1;
-                            }
-                        }
-                        setR(pid, newR);
-                        
-                        // Capture delta if it's our player
-                        if (pid === currentPid) {
-                            const delta = newR - oldR;
-                            ratingDeltaMap.set(dateKey, (ratingDeltaMap.get(dateKey) || 0) + delta);
-                        }
-                    });
-                };
-                applyV1(t1Ids, isTeam1Win);
-                applyV1(t2Ids, !isTeam1Win);
-            } 
-            else if (isRuleV2) {
-                // Rule 2.0 Sim
-                const getTeamAvg = (ids: string[]) => ids.length > 0 ? ids.reduce((a,b) => a + getR(b), 0) / ids.length : 3.0;
-                const TA = getTeamAvg(t1Ids);
-                const TB = getTeamAvg(t2Ids);
-                const Diff = TA - TB;
-                const ExpectedA = 1 / (1 + Math.exp(-Diff / V2_TAU));
-                const ResultA = isTeam1Win ? 1 : 0;
-                
-                const ScoreDiff = Math.abs(s1 - s2);
-                let MarginFactor = 1 + V2_ALPHA * ((ScoreDiff / V2_WIN_SCORE) - 0.25);
-                if (MarginFactor < 0.85) MarginFactor = 0.85;
-                if (MarginFactor > 1.20) MarginFactor = 1.20;
-
-                let TeamChangeA = V2_K * (ResultA - ExpectedA) * MarginFactor;
-                const TeamChangeB = -TeamChangeA;
-
-                const updateV2 = (pid: string, teamAvg: number, teamChange: number, teammateId?: string) => {
-                    const oldR = getR(pid);
-                    let W = 1.0;
-                    if (teammateId) {
-                        const R_partner = getR(teammateId);
-                        const w_me = Math.exp(-V2_BETA * (oldR - teamAvg));
-                        const w_partner = Math.exp(-V2_BETA * (R_partner - teamAvg));
-                        W = w_me / (w_me + w_partner);
-                    }
-                    let change = W * teamChange;
-                    if (change > V2_MAX_CHANGE) change = V2_MAX_CHANGE;
-                    if (change < -V2_MAX_CHANGE) change = -V2_MAX_CHANGE;
-                    
-                    let newR = oldR + change;
-                    if (newR > V2_RATING_MAX) newR = V2_RATING_MAX;
-                    if (newR < V2_RATING_MIN) newR = V2_RATING_MIN;
-                    
-                    // IMPORTANT FIX: Round at each step to match real storage logic exactly
-                    // Without this, float drift causes discrepancies (e.g. 0.141 - 0.141 = 0 instead of rounding changes)
-                    newR = Math.round(newR * 100) / 100;
-
-                    setR(pid, newR);
-
-                    if (pid === currentPid) {
-                        const actualDelta = newR - oldR; // Capture effective delta after clamp & rounding
-                        ratingDeltaMap.set(dateKey, (ratingDeltaMap.get(dateKey) || 0) + actualDelta);
-                    }
-                };
-
-                t1Ids.forEach(pid => updateV2(pid, TA, TeamChangeA, t1Ids.find(id => id !== pid)));
-                t2Ids.forEach(pid => updateV2(pid, TB, TeamChangeB, t2Ids.find(id => id !== pid)));
+        
+        // 1. Get Base Rating History from storageService (Includes everything)
+        const fullHistory = getDailyRatingHistory(players, matches);
+        
+        // Create delta map: date -> rating change for THIS player
+        const ratingDeltaMap = new Map<string, number>();
+        let prevRating = typeof player.initialPoints === 'number' ? player.initialPoints : 1000;
+        
+        // If history has initial entry before any matches? No, matches drive history.
+        // We iterate chronologically to find diffs.
+        fullHistory.forEach(day => {
+            const newRating = day.ratings[currentPid];
+            if (newRating !== undefined) {
+                const diff = newRating - prevRating;
+                if (Math.abs(diff) > 0.001) {
+                    ratingDeltaMap.set(day.date, diff);
+                }
+                prevRating = newRating;
             }
         });
 
-        // B. Standard Aggregation
-        const summary = new Map<string, { date: string, wins: number, losses: number, netPoints: number, matchCount: number, ratingChange: number }>();
+        // 2. Identify Tournament Bonuses Explicitly for Display
+        // We will scan each month present in player's history
+        const bonusNotes = new Map<string, string>(); // Date -> "Bonus Hạng 1"
+        const uniqueMonths = new Set<string>();
+        analysis.playerMatches.forEach(m => uniqueMonths.add(m.date.slice(0, 7)));
+
+        uniqueMonths.forEach(monthKey => {
+            const standings = getTournamentStandings(monthKey, players, matches);
+            if (standings.length >= 3) {
+                // Check if player is in top 3
+                const rankIdx = standings.findIndex(t => t.playerIds.includes(currentPid));
+                if (rankIdx >= 0 && rankIdx <= 2) {
+                    const place = rankIdx + 1;
+                    
+                    // Calculate exact bonus to show user
+                    const N = standings.length;
+                    const S = 1 + 0.10 * (N - 5);
+                    const baseBonuses: Record<number, number> = { 1: 0.10, 2: 0.07, 3: 0.05 };
+                    const rawBonus = baseBonuses[place] * S;
+                    const bonusVal = Math.min(0.15, Math.round(rawBonus * 100) / 100);
+
+                    // Find the LAST match date of this month for this player to attach the note
+                    const monthMatches = analysis.playerMatches.filter(m => m.date.startsWith(monthKey));
+                    if (monthMatches.length > 0) {
+                        // Sorted desc in analysis, so [0] is latest
+                        const lastMatchDate = monthMatches[0].date.split('T')[0];
+                        bonusNotes.set(lastMatchDate, `Thưởng Top ${place} (+${bonusVal.toFixed(2)})`);
+                    }
+                }
+            }
+        });
+
+        // 3. Standard Aggregation
+        const summary = new Map<string, { date: string, wins: number, losses: number, netPoints: number, matchCount: number, ratingChange: number, note?: string }>();
 
         analysis.playerMatches.forEach(m => {
             const dateKey = m.date.split('T')[0];
@@ -385,7 +313,8 @@ export const PlayerProfile: React.FC<PlayerProfileProps> = ({ player, players, m
                     losses: 0, 
                     netPoints: 0, 
                     matchCount: 0,
-                    ratingChange: ratingDeltaMap.get(dateKey) || 0 
+                    ratingChange: ratingDeltaMap.get(dateKey) || 0,
+                    note: bonusNotes.get(dateKey)
                 });
             }
             const day = summary.get(dateKey)!;
@@ -412,6 +341,9 @@ export const PlayerProfile: React.FC<PlayerProfileProps> = ({ player, players, m
                 if (isBetting) day.netPoints -= points;
             }
         });
+
+        // Add any pure bonus dates (if player didn't play on the last day but got bonus? Unlikely with logic above, but safety check)
+        // Actually the logic attaches to last match, so it's covered.
 
         return Array.from(summary.values()).sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   }, [analysis.playerMatches, player.id, players, matches]);
@@ -770,7 +702,7 @@ export const PlayerProfile: React.FC<PlayerProfileProps> = ({ player, players, m
                                             <th className="px-4 py-3 text-center">Số Trận</th>
                                             <th className="px-4 py-3 text-center">Thắng - Thua</th>
                                             <th className="px-4 py-3 text-right">Tổng Điểm Kèo</th>
-                                            <th className="px-4 py-3 text-right w-24">Rating</th>
+                                            <th className="px-4 py-3 text-right w-28">Rating</th>
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-slate-100">
@@ -778,14 +710,22 @@ export const PlayerProfile: React.FC<PlayerProfileProps> = ({ player, players, m
                                             dailySummary.map((day, idx) => (
                                                 <tr key={day.date} className="hover:bg-slate-50/50 transition-colors">
                                                     <td className="px-4 py-3 font-medium text-slate-900 text-xs">
-                                                        <div className="flex items-center gap-2">
-                                                            <Calendar className="w-4 h-4 text-slate-400" />
-                                                            {new Date(day.date).toLocaleDateString('vi-VN', {
-                                                                weekday: 'short',
-                                                                day: '2-digit',
-                                                                month: '2-digit',
-                                                                year: 'numeric'
-                                                            })}
+                                                        <div className="flex flex-col gap-1">
+                                                            <div className="flex items-center gap-2">
+                                                                <Calendar className="w-4 h-4 text-slate-400" />
+                                                                {new Date(day.date).toLocaleDateString('vi-VN', {
+                                                                    weekday: 'short',
+                                                                    day: '2-digit',
+                                                                    month: '2-digit',
+                                                                    year: 'numeric'
+                                                                })}
+                                                            </div>
+                                                            {day.note && (
+                                                                <div className="flex items-center gap-1 text-[10px] text-yellow-600 bg-yellow-50 px-2 py-0.5 rounded border border-yellow-200 w-fit">
+                                                                    <Gift className="w-3 h-3" />
+                                                                    {day.note}
+                                                                </div>
+                                                            )}
                                                         </div>
                                                     </td>
                                                     <td className="px-4 py-3 text-center text-slate-600 font-bold">
