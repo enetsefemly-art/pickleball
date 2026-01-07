@@ -34,6 +34,33 @@ export const PlayerProfile: React.FC<PlayerProfileProps> = ({ player, players, m
   // Create a lookup for player names
   const playerLookup = useMemo(() => new Map(players.map(p => [String(p.id), p])), [players]);
 
+  // --- CHAMPIONSHIP CALCULATION (GLOBAL HISTORY) ---
+  const calculatedChampionships = useMemo(() => {
+      const uniqueMonths = new Set<string>();
+      // Scan ALL matches to find all tournament months involved
+      matches.forEach(m => {
+          if (m.type === 'tournament') {
+              uniqueMonths.add(m.date.slice(0, 7));
+          }
+      });
+
+      let count = 0;
+      const pId = String(player.id);
+
+      uniqueMonths.forEach(monthKey => {
+          // Get standings for that month using ALL matches (no time limit filter applied to 'matches' prop here)
+          const standings = getTournamentStandings(monthKey, players, matches);
+          // Check if this player is in the #1 team
+          if (standings.length > 0) {
+              const championTeam = standings[0];
+              if (championTeam.playerIds.includes(pId)) {
+                  count++;
+              }
+          }
+      });
+      return count;
+  }, [matches, player.id, players]);
+
   // --- ANALYSIS LOGIC ---
   const analysis = useMemo(() => {
     // 1. Filter matches involving this player
@@ -371,10 +398,10 @@ export const PlayerProfile: React.FC<PlayerProfileProps> = ({ player, players, m
                             <div className="w-24 h-24 md:w-32 md:h-32 rounded-full bg-slate-700 border-4 border-slate-600 flex items-center justify-center text-4xl font-bold text-slate-300 shadow-xl">
                                 {player.name.charAt(0).toUpperCase()}
                             </div>
-                            {(player.championships || 0) > 0 && (
+                            {calculatedChampionships > 0 && (
                                 <div className="absolute -bottom-2 -right-2 bg-yellow-500 text-white text-xs font-bold px-2 py-1 rounded-full shadow-lg border-2 border-slate-800 flex items-center gap-1">
                                     <Trophy className="w-3 h-3 fill-current" />
-                                    {player.championships}
+                                    {calculatedChampionships}
                                 </div>
                             )}
                         </div>
@@ -391,13 +418,13 @@ export const PlayerProfile: React.FC<PlayerProfileProps> = ({ player, players, m
                             </div>
                             
                             {/* Trophy Case */}
-                            {(player.championships || 0) > 0 && (
+                            {calculatedChampionships > 0 && (
                                 <div className="flex items-center justify-center md:justify-start gap-1 pt-2">
-                                    {Array.from({ length: Math.min(player.championships || 0, 5) }).map((_, i) => (
+                                    {Array.from({ length: Math.min(calculatedChampionships, 5) }).map((_, i) => (
                                         <Trophy key={i} className="w-5 h-5 text-yellow-400 fill-yellow-400 drop-shadow-sm" />
                                     ))}
-                                    {(player.championships || 0) > 5 && (
-                                        <span className="text-xs text-yellow-400 font-bold">+{ (player.championships || 0) - 5 }</span>
+                                    {calculatedChampionships > 5 && (
+                                        <span className="text-xs text-yellow-400 font-bold">+{ calculatedChampionships - 5 }</span>
                                     )}
                                 </div>
                             )}
@@ -451,7 +478,7 @@ export const PlayerProfile: React.FC<PlayerProfileProps> = ({ player, players, m
 
                                 <Card className="p-4 flex flex-col items-center justify-center text-center border-none shadow-md bg-yellow-50 border-yellow-200">
                                     <Trophy className="w-6 h-6 text-yellow-600 mb-2" />
-                                    <div className="text-2xl font-black text-yellow-700">{player.championships || 0}</div>
+                                    <div className="text-2xl font-black text-yellow-700">{calculatedChampionships}</div>
                                     <div className="text-xs text-yellow-600 font-bold uppercase">Vô Địch</div>
                                 </Card>
                             </div>

@@ -3,7 +3,6 @@ import { Match, Player } from '../types';
 import { Card } from './Card';
 import { Trophy, TrendingUp, Users, Banknote, Medal, Calendar, Grid3X3, Filter, Award, TrendingDown, Activity } from 'lucide-react';
 import { HeadToHeadMatrix } from './HeadToHeadMatrix';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { getDailyRatingHistory } from '../services/storageService';
 
 interface DashboardStatsProps {
@@ -228,31 +227,68 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({ matches, players
         });
   }, [activePlayers]);
 
-  // --- RATING CHART DATA ---
-  const ratingChartData = useMemo(() => {
-      // 1. Get full daily history
+  // --- RATING HISTORY TABLE DATA (TRANSPOSED) ---
+  const ratingHistoryData = useMemo(() => {
+      // 1. Get full history
       const history = getDailyRatingHistory(players, matches);
       
-      // 2. Filter for current month
-      const currentMonthHistory = history.filter(h => h.date.startsWith(currentMonthKey));
+      // 2. Filter for current month and Sort CHRONOLOGICALLY ASCENDING (Oldest to Newest for columns)
+      const currentMonthHistory = history
+          .filter(h => h.date.startsWith(currentMonthKey))
+          .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
       
-      // 3. Filter only active players who have matches in this history (to avoid 20 lines)
-      // Actually, show all ACTIVE players, assuming team size is small (<15).
-      if (currentMonthHistory.length === 0) return [];
+      if (currentMonthHistory.length === 0) return { dates: [], rows: [] };
 
-      return currentMonthHistory.map(day => {
-          const point: any = { name: day.date.slice(8, 10) + '/' + day.date.slice(5, 7) }; // DD/MM
-          activePlayers.forEach(p => {
-              if (day.ratings[p.id] !== undefined) {
-                  point[p.name] = day.ratings[p.id];
+      // 3. Get ALL Active IDs (sorted by rating from topRatedPlayers)
+      const targetIds = topRatedPlayers.map(p => String(p.id));
+
+      // 4. Build Rows (One per Player)
+      const rows = targetIds.map(pid => {
+          const player = playerLookup.get(pid);
+          
+          // Generate cell data for each date
+          const cells = currentMonthHistory.map((day, idx) => {
+              // Find PREVIOUS day for delta calculation
+              // Since currentMonthHistory is subset, we need to check history carefully
+              // Or just simplify: compare with previous index in this array, 
+              // if first index, check initial points or previous day in full history.
+              
+              const currentRating = day.ratings[pid];
+              
+              if (currentRating === undefined) return null;
+
+              // Find previous rating
+              let prevR = 1000;
+              if (idx > 0) {
+                  prevR = currentMonthHistory[idx - 1].ratings[pid] || 1000;
+              } else {
+                  // First day of this month view. Find previous entry in full history.
+                  const dayIdxFull = history.findIndex(h => h.date === day.date);
+                  if (dayIdxFull > 0) {
+                      prevR = history[dayIdxFull - 1].ratings[pid] || (player?.initialPoints || 1000);
+                  } else {
+                      prevR = player?.initialPoints || 1000;
+                  }
               }
-          });
-          return point;
-      });
-  }, [players, matches, activePlayers, currentMonthKey]);
 
-  // Color palette for lines
-  const lineColors = ['#2563eb', '#16a34a', '#dc2626', '#d97706', '#7c3aed', '#db2777', '#0891b2', '#4f46e5', '#ca8a04', '#059669'];
+              const delta = currentRating - prevR;
+              return { rating: currentRating, delta };
+          });
+
+          return {
+              player,
+              cells
+          };
+      });
+
+      return {
+          dates: currentMonthHistory.map(h => ({
+              full: h.date,
+              display: h.date.slice(8, 10) + '/' + h.date.slice(5, 7)
+          })),
+          rows
+      };
+  }, [players, matches, currentMonthKey, topRatedPlayers, playerLookup]);
 
   // --- FILTER MATCHES FOR MATRIX ---
   const matrixMatches = useMemo(() => {
@@ -397,40 +433,70 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({ matches, players
          </div>
       </Card>
 
-      {/* 3. RATING CHART (Position 3) */}
+      {/* 3. RATING TABLE (TRANSPOSED: ROWS=PLAYERS, COLS=DATES) */}
       <Card className="p-0 sm:p-6" classNameTitle="px-4 sm:px-6">
          <div className="flex flex-col sm:flex-row items-center justify-between border-b border-slate-100 p-4 gap-4 bg-slate-50/50">
             <h3 className="font-bold text-slate-800 flex items-center gap-2 text-sm sm:text-base">
                 <Activity className="w-5 h-5 text-indigo-500" />
-                Biến Động Rating (Tháng này)
+                Biến Động Rating (Tất cả - Tháng này)
             </h3>
          </div>
-         <div className="h-64 w-full p-2 sm:p-4">
-            {ratingChartData.length > 0 ? (
-                <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={ratingChartData}>
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-                        <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fontSize: 10, fill: '#64748b'}} dy={10} />
-                        <YAxis axisLine={false} tickLine={false} tick={{fontSize: 12, fill: '#64748b'}} domain={['auto', 'auto']} />
-                        <Tooltip contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)', fontSize: '12px' }} />
-                        <Legend wrapperStyle={{ fontSize: '10px', paddingTop: '10px' }} />
-                        {activePlayers.map((p, idx) => (
-                            <Line 
-                                key={p.id}
-                                type="monotone" 
-                                dataKey={p.name} 
-                                stroke={lineColors[idx % lineColors.length]} 
-                                strokeWidth={2} 
-                                dot={{r: 2}} 
-                                activeDot={{r: 4}} 
-                                connectNulls={true}
-                            />
+         <div className="w-full overflow-x-auto">
+            {ratingHistoryData.rows.length > 0 ? (
+                <table className="w-full text-xs text-left border-collapse min-w-[800px]">
+                    <thead className="bg-slate-50 text-slate-500 font-bold uppercase text-[10px]">
+                        <tr>
+                            {/* Sticky First Column Header */}
+                            <th className="px-4 py-3 border-b border-slate-200 sticky left-0 bg-slate-50 z-20 w-32 border-r border-slate-200">
+                                Người Chơi
+                            </th>
+                            {/* Date Columns */}
+                            {ratingHistoryData.dates.map((date, idx) => (
+                                <th key={idx} className="px-4 py-3 border-b border-slate-200 text-center min-w-[80px] whitespace-nowrap">
+                                    {date.display}
+                                </th>
+                            ))}
+                        </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                        {ratingHistoryData.rows.map((row, rowIdx) => (
+                            <tr key={rowIdx} className="hover:bg-slate-50/50 transition-colors">
+                                {/* Sticky Player Name */}
+                                <td className="px-4 py-3 font-bold text-slate-800 sticky left-0 bg-white z-10 border-r border-slate-100 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] truncate">
+                                    {row.player?.name}
+                                </td>
+                                
+                                {/* Date Cells */}
+                                {row.cells.map((cell, cellIdx) => (
+                                    <td key={cellIdx} className="px-2 py-3 text-center border-r border-slate-50 last:border-r-0">
+                                        {cell ? (
+                                            <div className="flex flex-col items-center">
+                                                <span className="font-bold text-slate-800 text-sm font-mono">
+                                                    {cell.rating.toFixed(2)}
+                                                </span>
+                                                {Math.abs(cell.delta) > 0.001 ? (
+                                                    <span className={`text-[10px] font-bold ${cell.delta > 0 ? 'text-green-600' : 'text-red-500'}`}>
+                                                        {cell.delta > 0 ? '+' : ''}{cell.delta.toFixed(2)}
+                                                    </span>
+                                                ) : (
+                                                    <span className="text-[10px] text-slate-300">-</span>
+                                                )}
+                                            </div>
+                                        ) : (
+                                            <span className="text-slate-200 text-lg">-</span>
+                                        )}
+                                    </td>
+                                ))}
+                            </tr>
                         ))}
-                    </LineChart>
-                </ResponsiveContainer>
+                    </tbody>
+                </table>
             ) : (
-                <div className="h-full flex items-center justify-center text-slate-400 text-sm">Chưa có dữ liệu biến động tháng này.</div>
+                <div className="h-32 flex items-center justify-center text-slate-400 text-sm">Chưa có dữ liệu biến động tháng này.</div>
             )}
+         </div>
+         <div className="p-2 text-[10px] text-slate-400 text-center italic border-t border-slate-50">
+            * Hiển thị điểm chốt cuối ngày và mức thay đổi so với ngày trước đó. Cột cuộn ngang theo thời gian.
          </div>
       </Card>
 

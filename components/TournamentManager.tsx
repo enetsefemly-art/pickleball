@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Player, Match, Team, TournamentMatch, TournamentState } from '../types';
-import { Trophy, Users, Play, Save, Trash2, Calendar, Shield, Swords, Flag, Sparkles, ArrowLeft, ArrowRightLeft, Clock, Timer, Hourglass, CheckCircle2, Edit3, UploadCloud, AlertCircle } from 'lucide-react';
+import { Trophy, Users, Play, Save, Trash2, Calendar, Shield, Swords, Flag, Sparkles, ArrowLeft, ArrowRightLeft, Clock, Timer, Hourglass, CheckCircle2, Edit3, UploadCloud, AlertCircle, CheckSquare, Square, ChevronUp, ChevronDown } from 'lucide-react';
 import { Card } from './Card';
 import { getTournamentStandings } from '../services/storageService';
 
@@ -109,6 +109,9 @@ export const TournamentManager: React.FC<TournamentManagerProps> = ({
   // Edit Schedule Mode State
   const [isEditMode, setIsEditMode] = useState(false);
   const [swapMatchId, setSwapMatchId] = useState<string | null>(null);
+
+  // Scroll Ref for Teams List
+  const teamListRef = useRef<HTMLDivElement>(null);
 
   // Sync prop state to local active tab
   useEffect(() => {
@@ -440,12 +443,33 @@ export const TournamentManager: React.FC<TournamentManagerProps> = ({
       return getTournamentStandings(tournamentData.tournamentDate.slice(0, 7), players, tempMatches);
   }, [tournamentData, players]);
 
+  // --- SCROLL HELPERS ---
+  const scrollTeams = (direction: 'up' | 'down') => {
+      if (teamListRef.current) {
+          const scrollAmount = 200;
+          teamListRef.current.scrollBy({
+              top: direction === 'down' ? scrollAmount : -scrollAmount,
+              behavior: 'smooth'
+          });
+      }
+  };
+
 
   // --- RENDER ---
   
   if (activeTab === 'setup') {
       const playersInTeams = new Set(manualTeams.flatMap(t => [t.player1?.id, t.player2?.id]));
       const availablePlayers = sortedPlayers.filter(p => !playersInTeams.has(String(p.id)));
+
+      // Select All Logic
+      const isAllSelected = availablePlayers.length > 0 && availablePlayers.every(p => selectedPlayerIds.includes(String(p.id)));
+      const handleSelectAll = () => {
+          if (isAllSelected) {
+              setSelectedPlayerIds([]);
+          } else {
+              setSelectedPlayerIds(availablePlayers.map(p => String(p.id)));
+          }
+      };
 
       return (
           <div className="space-y-6 animate-fade-in">
@@ -488,7 +512,23 @@ export const TournamentManager: React.FC<TournamentManagerProps> = ({
 
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                   {/* LEFT: Player Pool */}
-                  <Card title={`Kho Vận Động Viên (${availablePlayers.length})`} className="h-[500px] flex flex-col">
+                  <Card 
+                    className="h-[500px] flex flex-col"
+                    classNameTitle="flex items-center justify-between"
+                    title={
+                        <div className="flex items-center justify-between w-full">
+                            <span>Kho Vận Động Viên ({availablePlayers.length})</span>
+                            <button 
+                                onClick={handleSelectAll}
+                                className="text-xs font-bold text-pickle-600 bg-pickle-50 px-2 py-1 rounded flex items-center gap-1 hover:bg-pickle-100 transition-colors"
+                            >
+                                {isAllSelected ? <CheckSquare className="w-4 h-4" /> : <Square className="w-4 h-4" />}
+                                {isAllSelected ? 'Bỏ chọn' : 'Chọn tất cả'}
+                            </button>
+                        </div>
+                    }
+                  >
+                      {/* Title is handled in Card prop above */}
                       <div className="flex-1 overflow-y-auto p-2 grid grid-cols-2 sm:grid-cols-3 gap-2 content-start">
                           {availablePlayers.map(p => (
                               <div 
@@ -510,57 +550,104 @@ export const TournamentManager: React.FC<TournamentManagerProps> = ({
                   </Card>
 
                   {/* RIGHT: Teams List */}
-                  <Card title={`Danh Sách Đội (${manualTeams.length})`} className="h-[500px] flex flex-col">
+                  <Card 
+                    title={
+                        <div className="flex justify-between items-center w-full">
+                            <span>Danh Sách Đội ({manualTeams.length})</span>
+                            <div className="flex gap-1">
+                                <button onClick={() => scrollTeams('up')} className="p-1 hover:bg-slate-100 rounded text-slate-500" title="Cuộn lên"><ChevronUp className="w-4 h-4" /></button>
+                                <button onClick={() => scrollTeams('down')} className="p-1 hover:bg-slate-100 rounded text-slate-500" title="Cuộn xuống"><ChevronDown className="w-4 h-4" /></button>
+                            </div>
+                        </div>
+                    } 
+                    classNameTitle="flex items-center justify-between"
+                    className="h-[500px] flex flex-col"
+                  >
                       {swapSource && (
                           <div className="bg-orange-50 text-orange-800 px-3 py-2 text-xs font-bold border-b border-orange-100 flex items-center gap-2 animate-pulse">
                               <ArrowRightLeft className="w-3 h-3" />
                               Đang chọn: {getPlayer(manualTeams.find(t => t.id === swapSource.teamId)?.[swapSource.role]?.id || '')?.name}. Chọn người thứ 2 để đổi.
                           </div>
                       )}
-                      <div className="flex-1 overflow-y-auto p-2 space-y-2">
+                      
+                      <div ref={teamListRef} className="flex-1 overflow-y-auto p-2 grid grid-cols-1 xl:grid-cols-2 gap-2 content-start scroll-smooth">
                           {manualTeams.length === 0 && (
-                              <div className="h-full flex flex-col items-center justify-center text-slate-400 text-center p-8">
+                              <div className="col-span-full h-full flex flex-col items-center justify-center text-slate-400 text-center p-8">
                                   <Users className="w-12 h-12 mb-2 opacity-20" />
                                   <p>Chưa có đội nào.</p>
                                   <p className="text-xs">Chọn người chơi bên trái và bấm "Ghép Cân Bằng".</p>
                               </div>
                           )}
                           {manualTeams.map((team, idx) => (
-                              <div key={team.id} className="flex justify-between items-center p-3 bg-slate-50 rounded-lg border border-slate-200">
-                                  <div className="flex items-center gap-3 flex-1">
-                                      <span className="font-bold text-slate-400 w-5">#{idx + 1}</span>
+                              <div key={team.id} className="relative flex items-center p-2 bg-white rounded-lg border border-slate-200 shadow-sm group hover:border-pickle-400 transition-all">
+                                  {/* Rank/Index */}
+                                  <div className="absolute top-0 left-0 w-6 h-6 flex items-center justify-center bg-slate-100 text-[10px] font-bold text-slate-500 rounded-br-lg rounded-tl-lg z-10 border-b border-r border-slate-200">
+                                      {idx + 1}
+                                  </div>
+
+                                  {/* Delete Button (Absolute Right Top) */}
+                                  <button 
+                                      onClick={(e) => { e.stopPropagation(); removeTeam(team.id); }}
+                                      className="absolute top-1 right-1 text-slate-300 hover:text-red-500 p-1 opacity-0 group-hover:opacity-100 transition-opacity z-20"
+                                      title="Xóa đội"
+                                  >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+
+                                  {/* Content Container - Flex Row for Players */}
+                                  <div className="flex items-center w-full pl-6 pr-4 py-1 gap-2">
                                       
                                       {/* Player 1 */}
                                       <div 
-                                        onClick={() => handleSwapClick(team.id, 'player1')}
-                                        className={`flex items-center gap-1 cursor-pointer p-1 rounded transition-colors ${swapSource?.teamId === team.id && swapSource?.role === 'player1' ? 'bg-orange-200 ring-2 ring-orange-400' : 'hover:bg-white hover:shadow-sm'}`}
+                                          onClick={() => handleSwapClick(team.id, 'player1')}
+                                          className={`flex-1 flex items-center gap-2 p-1.5 rounded cursor-pointer transition-colors border border-transparent ${
+                                              swapSource?.teamId === team.id && swapSource?.role === 'player1' 
+                                              ? 'bg-orange-50 border-orange-300 ring-1 ring-orange-200' 
+                                              : 'hover:bg-slate-50 hover:border-slate-100'
+                                          }`}
                                       >
-                                          <div className="w-8 h-8 rounded-full bg-blue-500 text-white flex items-center justify-center text-xs font-bold border-2 border-white shadow-sm" title={team.player1?.name}>{team.player1?.name.charAt(0)}</div>
-                                          <span className="text-xs font-bold text-slate-700 hidden sm:block truncate w-16">{team.player1?.name}</span>
+                                          <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-xs font-black border border-blue-200 shrink-0">
+                                              {team.player1?.name.charAt(0)}
+                                          </div>
+                                          <div className="min-w-0 flex-1">
+                                              <div className="text-xs font-bold text-slate-700 truncate leading-tight">{team.player1?.name}</div>
+                                              <div className="text-[9px] text-slate-400 font-mono">{(team.player1?.tournamentRating||0).toFixed(1)}</div>
+                                          </div>
                                       </div>
 
-                                      <div className="text-slate-300 font-light">/</div>
+                                      {/* Divider / VS / Link */}
+                                      <div className="text-slate-300 text-[10px] font-light">
+                                          <ArrowRightLeft className="w-3 h-3" />
+                                      </div>
 
                                       {/* Player 2 */}
                                       <div 
-                                        onClick={() => handleSwapClick(team.id, 'player2')}
-                                        className={`flex items-center gap-1 cursor-pointer p-1 rounded transition-colors ${swapSource?.teamId === team.id && swapSource?.role === 'player2' ? 'bg-orange-200 ring-2 ring-orange-400' : 'hover:bg-white hover:shadow-sm'}`}
+                                          onClick={() => handleSwapClick(team.id, 'player2')}
+                                          className={`flex-1 flex items-center gap-2 p-1.5 rounded cursor-pointer transition-colors border border-transparent ${
+                                              swapSource?.teamId === team.id && swapSource?.role === 'player2' 
+                                              ? 'bg-orange-50 border-orange-300 ring-1 ring-orange-200' 
+                                              : 'hover:bg-slate-50 hover:border-slate-100'
+                                          }`}
                                       >
-                                          <div className="w-8 h-8 rounded-full bg-green-500 text-white flex items-center justify-center text-xs font-bold border-2 border-white shadow-sm" title={team.player2?.name}>{team.player2?.name.charAt(0)}</div>
-                                          <span className="text-xs font-bold text-slate-700 hidden sm:block truncate w-16">{team.player2?.name}</span>
+                                          <div className="min-w-0 flex-1 text-right">
+                                              <div className="text-xs font-bold text-slate-700 truncate leading-tight">{team.player2?.name}</div>
+                                              <div className="text-[9px] text-slate-400 font-mono">{(team.player2?.tournamentRating||0).toFixed(1)}</div>
+                                          </div>
+                                          <div className="w-8 h-8 rounded-full bg-green-100 text-green-600 flex items-center justify-center text-xs font-black border border-green-200 shrink-0">
+                                              {team.player2?.name.charAt(0)}
+                                          </div>
                                       </div>
 
-                                      <div className="ml-auto text-[10px] text-slate-400 font-mono">
-                                          Rate: {((team.player1?.tournamentRating||0) + (team.player2?.tournamentRating||0)).toFixed(1)}
-                                      </div>
                                   </div>
-                                  <button onClick={() => removeTeam(team.id)} className="text-slate-400 hover:text-red-500 p-2 ml-2">
-                                      <Trash2 className="w-4 h-4" />
-                                  </button>
+
+                                  {/* Team Rating Badge (Absolute Bottom Center) */}
+                                  <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 bg-white border border-slate-200 px-2 py-0.5 rounded-full shadow-sm text-[9px] font-bold text-slate-500 font-mono flex items-center gap-1 z-10">
+                                     <span className="text-slate-300">∑</span> {((team.player1?.tournamentRating||0) + (team.player2?.tournamentRating||0)).toFixed(1)}
+                                  </div>
                               </div>
                           ))}
                       </div>
-                      <div className="p-2 text-[10px] text-slate-400 text-center italic border-t border-slate-100">
+                      <div className="p-2 text-[10px] text-slate-400 text-center italic border-t border-slate-100 mt-auto">
                           * Click vào avatar để đổi người chơi giữa các đội
                       </div>
                   </Card>

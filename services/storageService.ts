@@ -200,12 +200,11 @@ const calculateStandings = (matches: Match[]) => {
 
 // Exported function for external use (e.g. TournamentManager, PlayerProfile)
 export const getTournamentStandings = (monthKey: string, players: Player[], matches: Match[]) => {
-    // Filter matches for the specific month and tournament type, and valid date
+    // Filter matches for the specific month and tournament type
+    // FIX: Removed RATING_START_DATE check so historical cups (e.g. Oct) are counted
     const validMatches = matches.filter(m => {
-        const mDate = new Date(m.date);
         return m.date.startsWith(monthKey) && 
-               m.type === 'tournament' &&
-               mDate.getTime() >= RATING_START_DATE.getTime();
+               m.type === 'tournament';
     });
     
     return calculateStandings(validMatches);
@@ -217,13 +216,13 @@ const calculateAndApplyMonthlyBonuses = (
     monthMatches: Match[], 
     playerMap: Map<string, Player>
 ) => {
-    // FILTER: Only count matches on or after RATING_START_DATE for bonuses
-    const validMatches = monthMatches.filter(m => new Date(m.date).getTime() >= RATING_START_DATE.getTime());
-    if (validMatches.length === 0) return;
-
-    const finalStandings = calculateStandings(validMatches);
+    // 1. Calculate standings using ALL matches for this month (for Cups)
+    const finalStandings = calculateStandings(monthMatches);
 
     if (finalStandings.length < 3) return;
+
+    // 2. Check if this month is eligible for RATING updates (on or after Start Date)
+    const hasEligibleMatches = monthMatches.some(m => new Date(m.date).getTime() >= RATING_START_DATE.getTime());
 
     const N = finalStandings.length;
     const S = 1 + 0.10 * (N - 5);
@@ -238,10 +237,14 @@ const calculateAndApplyMonthlyBonuses = (
         team.playerIds.forEach(pid => {
             const p = playerMap.get(String(pid));
             if (p) {
-                const currentRating = p.tournamentRating || 3.0;
-                const updatedRating = Math.min(V2_RATING_MAX, Math.max(V2_RATING_MIN, currentRating + placementBonus));
-                p.tournamentRating = Math.round(updatedRating * 100) / 100;
+                // Apply Rating Bonus ONLY if eligible
+                if (hasEligibleMatches) {
+                    const currentRating = p.tournamentRating || 3.0;
+                    const updatedRating = Math.min(V2_RATING_MAX, Math.max(V2_RATING_MIN, currentRating + placementBonus));
+                    p.tournamentRating = Math.round(updatedRating * 100) / 100;
+                }
                 
+                // ALWAYS Apply Championship Cup (History tracked)
                 if (place === 1) {
                     p.championships = (p.championships || 0) + 1;
                 }
