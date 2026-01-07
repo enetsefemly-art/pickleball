@@ -351,7 +351,7 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({ players: initialPlayer
               <tr>
                 <th className="hidden sm:table-cell px-4 py-4 w-16">Hạng</th>
                 <th className="px-3 sm:px-6 py-4 w-[45%] sm:w-auto">{activeTab === 'betting' ? 'Người Chơi' : (tournamentView === 'pairs' ? 'Cặp Đôi' : 'Người Chơi')}</th>
-                {activeTab === 'betting' && <th className="px-1 sm:px-6 py-4 text-center w-[20%] sm:w-auto">Điểm XH</th>}
+                {activeTab === 'betting' && <th className="px-1 sm:px-6 py-4 text-center w-[20%] sm:w-auto">Điểm Kèo</th>}
                 {activeTab === 'tournament' && <th className="px-1 sm:px-6 py-4 text-center w-[20%] sm:w-auto">Rating</th>}
                 <th className="hidden sm:table-cell px-6 py-4 text-center">Trận</th>
                 <th className="px-2 sm:px-6 py-4 text-center w-[30%] sm:w-auto">Thắng/Thua</th>
@@ -371,7 +371,11 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({ players: initialPlayer
                             <div className="font-semibold text-slate-900 truncate text-sm sm:text-base">{player.name}</div>
                         </div>
                     </td>
-                    <td className="px-1 sm:px-6 py-3 sm:py-4 text-center"><span className="font-bold text-pickle-700 bg-pickle-50/50 px-2 py-1 rounded text-sm sm:text-base">{player.totalRankingPoints}</span></td>
+                    <td className="px-1 sm:px-6 py-3 sm:py-4 text-center">
+                        <span className={`font-bold px-2 py-1 rounded text-sm sm:text-base ${player.totalRankingPoints > 0 ? 'text-green-700 bg-green-50' : player.totalRankingPoints < 0 ? 'text-red-700 bg-red-50' : 'text-slate-500 bg-slate-100'}`}>
+                            {player.totalRankingPoints > 0 ? '+' : ''}{player.totalRankingPoints || 0}
+                        </span>
+                    </td>
                     <td className="hidden sm:table-cell px-6 py-4 text-center text-slate-700 font-medium">{player.matchesPlayed}</td>
                     <td className="px-2 sm:px-6 py-3 sm:py-4 text-center text-xs sm:text-sm"><span className="text-green-600 font-bold">{player.wins}</span> / <span className="text-slate-400">{player.losses}</span></td>
                     <td className="hidden sm:table-cell px-6 py-4 text-center"><span className={`${winRate >= 50 ? 'text-green-600' : 'text-orange-500'} font-medium`}>{winRate}%</span></td>
