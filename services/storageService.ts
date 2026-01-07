@@ -219,9 +219,21 @@ const calculateAndApplyMonthlyBonuses = (
     // 1. Calculate standings using ALL matches for this month (for Cups)
     const finalStandings = calculateStandings(monthMatches);
 
-    if (finalStandings.length < 3) return;
+    // FIX: Award Cup to #1 regardless of team count (if there is a winner)
+    if (finalStandings.length > 0) {
+        const championTeam = finalStandings[0];
+        championTeam.playerIds.forEach(pid => {
+            const p = playerMap.get(String(pid));
+            if (p) {
+                p.championships = (p.championships || 0) + 1;
+            }
+        });
+    }
 
     // 2. Check if this month is eligible for RATING updates (on or after Start Date)
+    // Bonus Rating Points (Top 3) strictly require >= 3 teams
+    if (finalStandings.length < 3) return;
+
     const hasEligibleMatches = monthMatches.some(m => new Date(m.date).getTime() >= RATING_START_DATE.getTime());
 
     const N = finalStandings.length;
@@ -242,11 +254,6 @@ const calculateAndApplyMonthlyBonuses = (
                     const currentRating = p.tournamentRating || 3.0;
                     const updatedRating = Math.min(V2_RATING_MAX, Math.max(V2_RATING_MIN, currentRating + placementBonus));
                     p.tournamentRating = Math.round(updatedRating * 100) / 100;
-                }
-                
-                // ALWAYS Apply Championship Cup (History tracked)
-                if (place === 1) {
-                    p.championships = (p.championships || 0) + 1;
                 }
             }
         });

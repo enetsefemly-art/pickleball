@@ -15,7 +15,7 @@ import { ChangelogModal } from './components/ChangelogModal';
 import { LayoutDashboard, History, Trophy, PlusCircle, Zap, Cloud, Loader2, CheckCircle2, AlertCircle, CloudOff, Swords, UserCog, Scale, Plus, BrainCircuit, Users, Bell } from 'lucide-react';
 
 // Current App Version - Bump this to trigger red dot for users
-const APP_VERSION = '3.3.1'; // Bumped for Tournament Sync update
+const APP_VERSION = '3.3.2'; // Bumped for Tournament Sync Fix
 
 const App: React.FC = () => {
   const [players, setPlayers] = useState<Player[]>([]);
@@ -97,11 +97,22 @@ const App: React.FC = () => {
           
           setMatches(cloudData.matches);
           setPlayers(cloudStats);
-          setTournamentState(cloudData.tournament); // Sync Tournament
+          
+          // FIX: Only overwrite local tournament if cloud has data, or if local is empty.
+          // This prevents wiping local active tournament if cloud backend doesn't support it yet.
+          if (cloudData.tournament) {
+              setTournamentState(cloudData.tournament);
+              saveTournamentState(cloudData.tournament);
+          } else if (localTournament && localTournament.isActive) {
+              console.log("Cloud sync: Preserving local active tournament (Cloud missing data)");
+              // Keep localTournament (already set above)
+          } else {
+              setTournamentState(null);
+              saveTournamentState(null);
+          }
           
           saveMatches(cloudData.matches);
           savePlayers(cloudStats);
-          saveTournamentState(cloudData.tournament); // Save local
 
           setSyncStatus('success');
           setTimeout(() => setSyncStatus('idle'), 2000);
@@ -119,12 +130,23 @@ const App: React.FC = () => {
   const handleCloudDataLoaded = (newPlayers: Player[], newMatches: Match[], newTournament: TournamentState | null) => {
       savePlayers(newPlayers);
       saveMatches(newMatches);
-      saveTournamentState(newTournament);
+      
+      // FIX: Apply same protection logic for manual download
+      const currentLocal = getTournamentState();
+      if (newTournament) {
+          saveTournamentState(newTournament);
+          setTournamentState(newTournament);
+      } else if (currentLocal && currentLocal.isActive) {
+          console.log("Manual sync: Preserving local active tournament");
+          // Do NOT clear tournament state
+      } else {
+          saveTournamentState(null);
+          setTournamentState(null);
+      }
       
       const recalculatedPlayers = calculatePlayerStats(newPlayers, newMatches);
       setMatches(newMatches);
       setPlayers(recalculatedPlayers);
-      setTournamentState(newTournament);
       savePlayers(recalculatedPlayers);
       
       setSyncStatus('success');
