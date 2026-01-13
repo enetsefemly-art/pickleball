@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Match, Player } from '../types';
 import { Card } from './Card';
-import { Trophy, TrendingUp, Users, Banknote, Medal, Calendar, Grid3X3, Filter, Award, TrendingDown, Activity } from 'lucide-react';
+import { Trophy, TrendingUp, Users, Banknote, Medal, Calendar, Grid3X3, Filter, Award, TrendingDown, Activity, Minus } from 'lucide-react';
 import { HeadToHeadMatrix } from './HeadToHeadMatrix';
 import { getDailyRatingHistory } from '../services/storageService';
 
@@ -214,71 +214,95 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({ matches, players
         .sort((a: PairStat, b: PairStat) => b.bettingPoints - a.bettingPoints);
   }, [stats.pairStats]);
 
-  // --- TOP RATING PLAYERS ---
+  // --- TOP RATING PLAYERS (For basic table) ---
   const topRatedPlayers = useMemo(() => {
-      // Create shallow copy to sort
       return [...activePlayers]
-        .filter(p => (p.matchesPlayed || 0) > 0) // Only show active players
+        .filter(p => (p.matchesPlayed || 0) > 0) 
         .sort((a, b) => {
             const rA = a.tournamentRating || 0;
             const rB = b.tournamentRating || 0;
-            if (rA !== rB) return rB - rA; // Descending
+            if (rA !== rB) return rB - rA;
             return b.matchesPlayed - a.matchesPlayed;
         });
   }, [activePlayers]);
 
-  // --- RATING HISTORY TABLE DATA (TRANSPOSED) ---
+  // --- RATING HISTORY TABLE DATA (TRANSPOSED & SORTED BY FLUCTUATION) ---
   const ratingHistoryData = useMemo(() => {
       // 1. Get full history
       const history = getDailyRatingHistory(players, matches);
       
-      // 2. Filter for current month and Sort CHRONOLOGICALLY ASCENDING (Oldest to Newest for columns)
+      // 2. Filter for current month and Sort CHRONOLOGICALLY ASCENDING
       const currentMonthHistory = history
           .filter(h => h.date.startsWith(currentMonthKey))
           .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
       
       if (currentMonthHistory.length === 0) return { dates: [], rows: [] };
 
-      // 3. Get ALL Active IDs (sorted by rating from topRatedPlayers)
-      const targetIds = topRatedPlayers.map(p => String(p.id));
+      // 3. Find index of the first entry of this month in the FULL history to determine Start Rating
+      const firstDayOfMonthIdx = history.findIndex(h => h.date.startsWith(currentMonthKey));
 
-      // 4. Build Rows (One per Player)
-      const rows = targetIds.map(pid => {
-          const player = playerLookup.get(pid);
+      // 4. Build Rows for ALL Active Players
+      const rows = activePlayers.map(player => {
+          const pid = String(player.id);
           
-          // Generate cell data for each date
+          // Determine Start of Month Rating
+          let startRating = player.initialPoints || 1000;
+          
+          if (firstDayOfMonthIdx > 0) {
+              // Rating at end of previous month
+              startRating = history[firstDayOfMonthIdx - 1].ratings[pid] || startRating;
+          } else if (firstDayOfMonthIdx === 0) {
+              // No previous history before this month, use initial
+              startRating = player.initialPoints || 1000;
+          } else {
+              // No matches this month in history? 
+              // Check if they had matches before (in previous months)
+              // Since we are iterating all active players, some might not have played this month.
+              const lastHistory = history[history.length - 1];
+              if (lastHistory && lastHistory.date < currentMonthKey) {
+                   startRating = lastHistory.ratings[pid] || startRating;
+              }
+          }
+
+          // Generate cell data for each date in this month
           const cells = currentMonthHistory.map((day, idx) => {
-              // Find PREVIOUS day for delta calculation
-              // Since currentMonthHistory is subset, we need to check history carefully
-              // Or just simplify: compare with previous index in this array, 
-              // if first index, check initial points or previous day in full history.
-              
               const currentRating = day.ratings[pid];
               
               if (currentRating === undefined) return null;
 
-              // Find previous rating
-              let prevR = 1000;
+              // Find previous rating for delta calculation
+              let prevR = startRating;
               if (idx > 0) {
-                  prevR = currentMonthHistory[idx - 1].ratings[pid] || 1000;
-              } else {
-                  // First day of this month view. Find previous entry in full history.
-                  const dayIdxFull = history.findIndex(h => h.date === day.date);
-                  if (dayIdxFull > 0) {
-                      prevR = history[dayIdxFull - 1].ratings[pid] || (player?.initialPoints || 1000);
-                  } else {
-                      prevR = player?.initialPoints || 1000;
-                  }
+                  prevR = currentMonthHistory[idx - 1].ratings[pid] || startRating;
               }
 
               const delta = currentRating - prevR;
               return { rating: currentRating, delta };
           });
 
+          // Calculate Total Change: Current (Last recorded or current prop) - StartRating
+          const currentRating = cells.length > 0 && cells[cells.length - 1] 
+                ? cells[cells.length - 1]!.rating 
+                : (player.tournamentRating || startRating);
+          
+          // Note: If player hasn't played this month, cells are empty, totalChange is 0 (or slight diff if tournamentRating drift)
+          const totalChange = currentRating - startRating;
+
           return {
               player,
-              cells
+              cells,
+              startRating,
+              totalChange
           };
+      });
+
+      // 5. SORT BY TOTAL CHANGE DESCENDING (Most positive to most negative)
+      rows.sort((a, b) => {
+          if (Math.abs(b.totalChange - a.totalChange) > 0.001) {
+              return b.totalChange - a.totalChange;
+          }
+          // Fallback: Rating
+          return (b.player.tournamentRating || 0) - (a.player.tournamentRating || 0);
       });
 
       return {
@@ -288,7 +312,7 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({ matches, players
           })),
           rows
       };
-  }, [players, matches, currentMonthKey, topRatedPlayers, playerLookup]);
+  }, [players, matches, currentMonthKey, activePlayers, playerLookup]);
 
   // --- FILTER MATCHES FOR MATRIX ---
   const matrixMatches = useMemo(() => {
@@ -450,6 +474,10 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({ matches, players
                             <th className="px-4 py-3 border-b border-slate-200 sticky left-0 bg-slate-50 z-20 w-32 border-r border-slate-200">
                                 Người Chơi
                             </th>
+                            {/* Monthly Change Column */}
+                            <th className="px-4 py-3 border-b border-slate-200 text-center w-24 border-r border-slate-200 bg-slate-50">
+                                Biến Động
+                            </th>
                             {/* Date Columns */}
                             {ratingHistoryData.dates.map((date, idx) => (
                                 <th key={idx} className="px-4 py-3 border-b border-slate-200 text-center min-w-[80px] whitespace-nowrap">
@@ -463,9 +491,22 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({ matches, players
                             <tr key={rowIdx} className="hover:bg-slate-50/50 transition-colors">
                                 {/* Sticky Player Name */}
                                 <td className="px-4 py-3 font-bold text-slate-800 sticky left-0 bg-white z-10 border-r border-slate-100 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] truncate">
-                                    {row.player?.name}
+                                    <div className="flex items-center gap-2">
+                                        <div className={`w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold text-white ${rowIdx < 3 ? 'bg-indigo-500' : 'bg-slate-300'}`}>{rowIdx + 1}</div>
+                                        <span className="truncate">{row.player?.name}</span>
+                                    </div>
                                 </td>
                                 
+                                {/* Monthly Fluctuation */}
+                                <td className="px-2 py-3 text-center border-r border-slate-100 bg-slate-50/30">
+                                    <div className={`flex items-center justify-center gap-1 font-bold text-xs ${
+                                        row.totalChange > 0.001 ? 'text-green-600' : row.totalChange < -0.001 ? 'text-red-500' : 'text-slate-400'
+                                    }`}>
+                                        {row.totalChange > 0.001 ? <TrendingUp className="w-3 h-3" /> : row.totalChange < -0.001 ? <TrendingDown className="w-3 h-3" /> : <Minus className="w-3 h-3" />}
+                                        {row.totalChange > 0 ? '+' : ''}{row.totalChange.toFixed(2)}
+                                    </div>
+                                </td>
+
                                 {/* Date Cells */}
                                 {row.cells.map((cell, cellIdx) => (
                                     <td key={cellIdx} className="px-2 py-3 text-center border-r border-slate-50 last:border-r-0">
@@ -496,7 +537,7 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({ matches, players
             )}
          </div>
          <div className="p-2 text-[10px] text-slate-400 text-center italic border-t border-slate-50">
-            * Hiển thị điểm chốt cuối ngày và mức thay đổi so với ngày trước đó. Cột cuộn ngang theo thời gian.
+            * Bảng được sắp xếp theo mức tăng/giảm rating tích lũy từ đầu tháng.
          </div>
       </Card>
 

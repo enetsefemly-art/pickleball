@@ -7,8 +7,8 @@ const TARGET_DIFF = 1.4; // Ideal rating difference between partners (Strong car
 const USE_SCORE_DATE = new Date('2026-01-01T00:00:00').getTime();
 
 // FORM CONSTANTS
-const FORM_MAX = 0.30;
-const SCALE_FACTOR = 0.20;
+const FORM_MAX = 0.25;
+const SCALE_FACTOR = 0.27;
 const W_WINLOSS = 0.80;
 const W_MARGIN = 0.15;
 const W_UPSET = 0.05;
