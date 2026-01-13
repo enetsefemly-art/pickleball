@@ -416,17 +416,18 @@ const generateOptimalPairs = (
     return pairs;
 };
 
-// --- HELPER: CALCULATE HANDICAP BREAKDOWN ---
-const calculateHandicap = (t1: GeneratedPair, t2: GeneratedPair): GeneratedMatch['handicap'] => {
-    let points = 0;
+// --- HELPER: CALCULATE HANDICAP WITH CALIBRATION ---
+const calculateHandicap = (t1: GeneratedPair, t2: GeneratedPair, history: Match[]): GeneratedMatch['handicap'] => {
+    let points = 0; // Use float for intermediate calculation
     const details: string[] = [];
     
+    // Determine Strong/Weak based on raw strength
     const strong = t1.strength > t2.strength ? t1 : t2;
     const weak = t1.strength > t2.strength ? t2 : t1;
     const teamStrong = t1.strength > t2.strength ? 1 : 2;
     const teamWeak = teamStrong === 1 ? 2 : 1;
 
-    // STEP 1: RATING DIFF
+    // STEP 1: BASE RATING DIFF
     const diff = Math.abs(t1.strength - t2.strength);
     
     details.push(`1. CHÊNH LỆCH RATING (GỐC + PHONG ĐỘ)`);
@@ -455,66 +456,126 @@ const calculateHandicap = (t1: GeneratedPair, t2: GeneratedPair): GeneratedMatch
     else if (diff > 0.6) ratingPoints = 2;
     else if (diff > 0.3) ratingPoints = 1;
 
+    points += ratingPoints;
     if (ratingPoints > 0) {
-        points += ratingPoints;
         const range = diff > 1.2 ? "> 1.2" : diff > 0.9 ? "0.9 - 1.2" : diff > 0.6 ? "0.6 - 0.9" : "0.3 - 0.6";
         details.push(`• Quy đổi: Hiệu số thuộc khoảng [${range}] => +${ratingPoints} quả`);
     } else {
         details.push(`• Quy đổi: Hiệu số < 0.3 => 0 quả`);
     }
 
-    // STEP 2: BLOWOUT INDEX (BINARY SAFE - ONLY NON-BINARY LOSSES COUNTED)
+    // STEP 2: SUPPORT OVERRIDE
+    // Rule: Add +1 handicap ONLY if the weaker team has MORE support players than the stronger team.
+    const countSupport = (t: GeneratedPair) => 
+        (t.player1.effectiveRating < SUPPORT_CUTOFF ? 1 : 0) + 
+        (t.player2.effectiveRating < SUPPORT_CUTOFF ? 1 : 0);
+    
+    const weakSupport = countSupport(weak);
+    const strongSupport = countSupport(strong);
+
+    if (weakSupport > strongSupport) {
+        points += 1;
+        details.push(`2. VỊ TRÍ YẾU (SUPPORT OVERRIDE)`);
+        details.push(`• Kèo dưới có ${weakSupport} support, Kèo trên có ${strongSupport} => +1 quả`);
+    }
+
+    // STEP 3: FORM OVERRIDE (WR10 PRIORITY)
+    const getWR10 = (t: GeneratedPair) => (t.player1.last10WinRate + t.player2.last10WinRate) / 2;
+    const wrWeak = getWR10(weak);
+    const wrStrong = getWR10(strong);
+    const wrGap = wrWeak - wrStrong;
+
+    if (wrGap >= 0.2) { // 20%
+        details.push(`3. PHONG ĐỘ (WR10 OVERRIDE)`);
+        const reduction = wrGap >= 0.3 ? 2 : 1;
+        points -= reduction;
+        details.push(`• Kèo dưới có WR10 cao hơn ${(wrGap * 100).toFixed(0)}% => -${reduction} quả`);
+    }
+
+    // STEP 4: BLOWOUT DIRECTION CHECK
+    // Rule: Apply blowout bonus ONLY IF teamBlowoutIndex > 0.35 AND points > 0 (still weaker)
     const w1LossRatio = weak.player1.nonBinaryLosses > 0 ? weak.player1.totalMarginRatioInLosses / weak.player1.nonBinaryLosses : 0;
     const w2LossRatio = weak.player2.nonBinaryLosses > 0 ? weak.player2.totalMarginRatioInLosses / weak.player2.nonBinaryLosses : 0;
     const teamBlowoutIndex = (w1LossRatio + w2LossRatio) / 2;
 
-    if (points > 0) {
-        details.push(`2. CHỈ SỐ DỄ VỠ TRẬN (BLOWOUT - BINARY SAFE)`);
-        details.push(`• Đội kèo dưới thường thua đậm? Index = ${teamBlowoutIndex.toFixed(3)}`);
-        
-        if (teamBlowoutIndex > 0.35) {
-            points += 1; 
-            details.push(`• Kết luận: Index ${teamBlowoutIndex.toFixed(3)} > 0.35 (Rủi ro cao) => +1 quả`);
-        } else {
-            details.push(`• Kết luận: Index ${teamBlowoutIndex.toFixed(3)} <= 0.35 (An toàn) => +0 quả`);
-        }
-    }
-
-    // STEP 3: SUPPORT PLAYER CHECK
-    if (points > 0) {
-        const p1Weak = weak.player1.effectiveRating < SUPPORT_CUTOFF;
-        const p2Weak = weak.player2.effectiveRating < SUPPORT_CUTOFF;
-        if (p1Weak || p2Weak) {
+    if (teamBlowoutIndex > 0.35) {
+        if (points > 0) {
             points += 1;
-            details.push(`3. VỊ TRÍ YẾU (SUPPORT)`);
-            details.push(`• Phát hiện người chơi có Rating < ${SUPPORT_CUTOFF} => +1 quả`);
+            details.push(`4. CHỈ SỐ DỄ VỠ TRẬN (BLOWOUT)`);
+            details.push(`• Index ${teamBlowoutIndex.toFixed(3)} > 0.35 và vẫn ở cửa dưới => +1 quả`);
         }
     }
 
-    // FINAL CAP
-    if (points > 4) {
-        details.push(`4. TỔNG KẾT`);
-        details.push(`• Tổng tính toán: ${points} quả. Giới hạn tối đa cho phép là 4.`);
-        points = 4;
+    // STEP 5: HEAD-TO-HEAD CALIBRATION
+    const thirtyDaysAgo = Date.now() - (30 * 24 * 60 * 60 * 1000);
+    const weakIds = [weak.player1.id, weak.player2.id];
+    const strongIds = [strong.player1.id, strong.player2.id];
+    
+    // Filter history for matches between these specific pairs
+    const h2hMatches = history.filter(m => {
+        const mTime = new Date(m.date).getTime();
+        if (mTime < thirtyDaysAgo) return false;
+        
+        const t1Ids = m.team1.map(String);
+        const t2Ids = m.team2.map(String);
+        
+        const isMatch = (
+            (hasId(t1Ids, weakIds[0]) && hasId(t1Ids, weakIds[1]) && hasId(t2Ids, strongIds[0]) && hasId(t2Ids, strongIds[1])) ||
+            (hasId(t2Ids, weakIds[0]) && hasId(t2Ids, weakIds[1]) && hasId(t1Ids, strongIds[0]) && hasId(t1Ids, strongIds[1]))
+        );
+        return isMatch;
+    });
+
+    if (h2hMatches.length > 0) {
+        let strongLosses = 0;
+        h2hMatches.forEach(m => {
+            // Determine if strong team was team1 or team2 in that match
+            const t1Ids = m.team1.map(String);
+            const strongIsT1 = hasId(t1Ids, strongIds[0]); // Strong pair is Team 1
+            
+            let s1 = Number(m.score1); let s2 = Number(m.score2);
+            let winner = s1 > s2 ? 1 : 2; 
+            
+            // Did strong lose?
+            if (strongIsT1 && winner === 2) strongLosses++;
+            if (!strongIsT1 && winner === 1) strongLosses++;
+        });
+
+        if (strongLosses > 0) {
+            details.push(`5. LỊCH SỬ ĐỐI ĐẦU (30 NGÀY)`);
+            const reduction = h2hMatches.length === 1 ? 0.5 : 1;
+            points -= reduction;
+            details.push(`• Kèo trên đã thua ${strongLosses}/${h2hMatches.length} trận gần đây => -${reduction} quả`);
+        }
     }
 
-    if (points > 0) {
-        return {
-            team: teamWeak as 1 | 2,
-            points: points,
-            reason: `Chấp ${points} quả`,
-            details: details
-        };
+    // FINAL SAFETY
+    let finalPoints = Math.round(points);
+    
+    if (finalPoints > 4) {
+        finalPoints = 4;
+        details.push(`• Giới hạn trần: 4 quả`);
     }
     
-    return undefined;
+    // If points dropped to 0 or below, no handicap
+    if (finalPoints <= 0) {
+        return undefined;
+    }
+
+    return {
+        team: teamWeak as 1 | 2,
+        points: finalPoints,
+        reason: `Chấp ${finalPoints} quả`,
+        details: details
+    };
 };
 
 
 // --- STEP 5: MATCHMAKING BETWEEN TEAMS (SCORE-AWARE) ---
 const generateMatchups = (
     teams: GeneratedPair[],
-    recentMatches: Set<string>
+    recentMatches: Set<string>,
+    allMatches: Match[]
 ): GeneratedMatch[] => {
     let pool = [...teams].sort((a, b) => b.strength - a.strength);
     const matches: GeneratedMatch[] = [];
@@ -554,7 +615,7 @@ const generateMatchups = (
             pool.splice(bestOpponentIdx, 1);
             
             // --- STEP 6: HANDICAP WITH BREAKDOWN ---
-            const handicap = calculateHandicap(t1, t2);
+            const handicap = calculateHandicap(t1, t2, allMatches);
 
             matches.push({
                 team1: t1,
@@ -643,7 +704,7 @@ export const findTopMatchupsForTeam = (
         }
 
         // --- HANDICAP ---
-        const handicap = calculateHandicap(fixedTeam, candidate);
+        const handicap = calculateHandicap(fixedTeam, candidate, allMatches);
 
         const pairKey = [candidate.player1.id, candidate.player2.id].sort().join('-');
         const syn = synergyMatrix.get(pairKey) || 0;
@@ -715,7 +776,7 @@ export const predictMatchOutcome = (
     };
 
     // --- HANDICAP ---
-    const handicap = calculateHandicap(team1Pair, team2Pair);
+    const handicap = calculateHandicap(team1Pair, team2Pair, allMatches);
 
     const diff = Math.abs(team1Pair.strength - team2Pair.strength);
     const quality = Math.max(0, 100 - (diff * 50));
@@ -761,7 +822,7 @@ export const runAutoMatchmaker = (
     });
 
     const pairs = generateOptimalPairs(pool, synergyMatrix, recentPairs);
-    const matchesResult = generateMatchups(pairs, recentMatches);
+    const matchesResult = generateMatchups(pairs, recentMatches, allMatches);
 
     return {
         players: pool,

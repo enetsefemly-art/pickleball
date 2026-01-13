@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo } from 'react';
 import { Player, Match } from '../types';
 import { Card } from './Card';
@@ -228,6 +229,7 @@ export const Analysis: React.FC<AnalysisProps> = ({ players, matches }) => {
             let strength = 0;
             // Use existing logic to calculate current strength
             const dummyMatch = predictMatchOutcome([t.p1, t.p2], [t.p1, t.p2], players, matches);
+            // Fixed property access: strength exists on GeneratedPair in autoMatchmaker.ts
             if (dummyMatch) strength = dummyMatch.team1.strength;
 
             statsMap.set(t.id, {
@@ -255,6 +257,7 @@ export const Analysis: React.FC<AnalysisProps> = ({ players, matches }) => {
                 );
 
                 if (prediction) {
+                    // Fixed property access: strength exists on GeneratedPair in autoMatchmaker.ts
                     const strA = prediction.team1.strength;
                     const strB = prediction.team2.strength;
                     
