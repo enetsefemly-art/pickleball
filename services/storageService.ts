@@ -280,28 +280,32 @@ export const calculatePlayerStats = (players: Player[], matches: Match[]): Playe
   const playerMap = new Map(resetPlayers.map(p => [String(p.id), p]));
   const sortedMatches = [...matches].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
-  let currentMonth = "";
-  let monthTournamentMatches: Match[] = [];
+  // --- PRE-CALCULATE TOURNAMENT TRIGGERS ---
+  // Identify the LAST match of every tournament (grouped by month) to apply bonuses immediately
+  const tournamentEndTriggers = new Set<string>();
+  const tournamentMatchesByMonth = new Map<string, Match[]>();
+
+  sortedMatches.forEach(m => {
+      if (m.type === 'tournament') {
+          const month = m.date.slice(0, 7);
+          if (!tournamentMatchesByMonth.has(month)) tournamentMatchesByMonth.set(month, []);
+          tournamentMatchesByMonth.get(month)!.push(m);
+      }
+  });
+
+  tournamentMatchesByMonth.forEach((list) => {
+      if (list.length > 0) {
+          // The ID of the last match chronologically is the trigger
+          tournamentEndTriggers.add(list[list.length - 1].id);
+      }
+  });
 
   for (const match of sortedMatches) {
     const matchDateObj = new Date(match.date);
-    const matchMonth = match.date.slice(0, 7);
     
     // CHECK: Is the match eligible for points (on or after Start Date)
     // 01/12/2025 inclusive
     const isEligibleForPoints = matchDateObj.getTime() >= RATING_START_DATE.getTime();
-
-    if (matchMonth !== currentMonth) {
-        if (currentMonth !== "" && monthTournamentMatches.length > 0) {
-            calculateAndApplyMonthlyBonuses(currentMonth, monthTournamentMatches, playerMap);
-        }
-        currentMonth = matchMonth;
-        monthTournamentMatches = [];
-    }
-
-    if (match.type === 'tournament') {
-        monthTournamentMatches.push(match);
-    }
 
     let s1 = Number(match.score1);
     let s2 = Number(match.score2);
@@ -385,11 +389,13 @@ export const calculatePlayerStats = (players: Player[], matches: Match[]): Playe
         team1Ids.forEach(pid => updateV2(pid, TA, TeamChangeA, team1Ids));
         team2Ids.forEach(pid => updateV2(pid, TB, -TeamChangeA, team2Ids));
     }
-  }
 
-  // Handle the last month loop exit
-  if (currentMonth !== "" && monthTournamentMatches.length > 0) {
-      calculateAndApplyMonthlyBonuses(currentMonth, monthTournamentMatches, playerMap);
+    // --- APPLY BONUS IF THIS IS THE LAST MATCH OF A TOURNAMENT ---
+    if (tournamentEndTriggers.has(match.id)) {
+        const month = match.date.slice(0, 7);
+        const tourMatches = tournamentMatchesByMonth.get(month) || [];
+        calculateAndApplyMonthlyBonuses(month, tourMatches, playerMap);
+    }
   }
 
   return Array.from(playerMap.values());
@@ -411,8 +417,24 @@ export const getDailyRatingHistory = (players: Player[], matches: Match[]) => {
     });
 
     const sortedMatches = [...matches].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-    let currentMonth = "";
-    let monthTournamentMatches: Match[] = [];
+    
+    // --- PRE-CALCULATE TOURNAMENT TRIGGERS ---
+    const tournamentEndTriggers = new Set<string>();
+    const tournamentMatchesByMonth = new Map<string, Match[]>();
+
+    sortedMatches.forEach(m => {
+        if (m.type === 'tournament') {
+            const month = m.date.slice(0, 7);
+            if (!tournamentMatchesByMonth.has(month)) tournamentMatchesByMonth.set(month, []);
+            tournamentMatchesByMonth.get(month)!.push(m);
+        }
+    });
+
+    tournamentMatchesByMonth.forEach((list) => {
+        if (list.length > 0) {
+            tournamentEndTriggers.add(list[list.length - 1].id);
+        }
+    });
     
     // Function to snapshot
     const takeSnapshot = (date: string) => {
@@ -433,26 +455,6 @@ export const getDailyRatingHistory = (players: Player[], matches: Match[]) => {
     // 2. Loop
     for (const match of sortedMatches) {
         const matchDate = match.date.split('T')[0];
-        const matchMonth = match.date.slice(0, 7);
-
-        // A. Handle Monthly Bonuses (Trigger on month change)
-        if (matchMonth !== currentMonth) {
-            if (currentMonth !== "" && monthTournamentMatches.length > 0) {
-                calculateAndApplyMonthlyBonuses(currentMonth, monthTournamentMatches, playerMap);
-                
-                // When bonuses are applied, they conceptually happen at the end of that month.
-                // We update the snapshot of the *previous* match date (end of previous month essentially)
-                if (history.length > 0) {
-                    takeSnapshot(history[history.length-1].date);
-                }
-            }
-            currentMonth = matchMonth;
-            monthTournamentMatches = [];
-        }
-
-        if (match.type === 'tournament') {
-            monthTournamentMatches.push(match);
-        }
 
         // B. Handle Match Rating Change
         let s1 = Number(match.score1);
@@ -513,16 +515,15 @@ export const getDailyRatingHistory = (players: Player[], matches: Match[]) => {
             team2Ids.forEach(pid => updateV2(pid, TB, -TeamChangeA, team2Ids));
         }
 
+        // Apply BONUS immediately if this is the last tournament match
+        if (tournamentEndTriggers.has(match.id)) {
+            const month = match.date.slice(0, 7);
+            const tourMatches = tournamentMatchesByMonth.get(month) || [];
+            calculateAndApplyMonthlyBonuses(month, tourMatches, playerMap);
+        }
+
         // C. Snapshot after every match (optimized: only if date changes or end of loop logic, but simplest is update entry for date)
         takeSnapshot(matchDate);
-    }
-
-    // Apply last month bonus if any
-    if (currentMonth !== "" && monthTournamentMatches.length > 0) {
-        calculateAndApplyMonthlyBonuses(currentMonth, monthTournamentMatches, playerMap);
-        if (history.length > 0) {
-            takeSnapshot(history[history.length-1].date);
-        }
     }
 
     return history;
@@ -557,25 +558,48 @@ export const getMatchRatingDetails = (matchId: string, matches: Match[], players
 
     // 4. Simulate ALL matches BEFORE the target match to get the "Old Ratings"
     // Also need to account for monthly bonuses in the simulation to be accurate
-    let currentMonth = "";
-    let monthTournamentMatches: Match[] = [];
+    // --- PRE-CALC TOURNAMENT TRIGGERS FOR SIMULATION ---
+    const tournamentEndTriggers = new Set<string>();
+    const tournamentMatchesByMonth = new Map<string, Match[]>();
+    sortedMatches.forEach(m => {
+        if (m.type === 'tournament') {
+            const month = m.date.slice(0, 7);
+            if (!tournamentMatchesByMonth.has(month)) tournamentMatchesByMonth.set(month, []);
+            tournamentMatchesByMonth.get(month)!.push(m);
+        }
+    });
+    tournamentMatchesByMonth.forEach((list) => {
+        if (list.length > 0) tournamentEndTriggers.add(list[list.length - 1].id);
+    });
+
+    // Helper for bonus simulation in simplified map
+    const applyBonusSim = (month: string) => {
+        const tourMatches = tournamentMatchesByMonth.get(month) || [];
+        const standings = calculateStandings(tourMatches);
+        if (standings.length < 3) return;
+        
+        const hasEligible = tourMatches.some(m => new Date(m.date).getTime() >= RATING_START_DATE.getTime());
+        if (!hasEligible) return;
+
+        const N = standings.length;
+        const S = 1 + 0.10 * (N - 5);
+        const baseBonuses: Record<number, number> = { 1: 0.10, 2: 0.07, 3: 0.05 };
+
+        standings.slice(0, 3).forEach((team, idx) => {
+            const place = idx + 1;
+            const rawBonus = baseBonuses[place] * S;
+            const bonus = Math.min(0.15, Math.round(rawBonus * 100) / 100);
+            
+            team.playerIds.forEach(pid => {
+                const cur = tempPlayerMap.get(String(pid)) || 3.0;
+                tempPlayerMap.set(String(pid), Math.min(V2_RATING_MAX, Math.max(V2_RATING_MIN, cur + bonus)));
+            });
+        });
+    };
 
     for (let i = 0; i < targetMatchIndex; i++) {
         const m = sortedMatches[i];
         
-        // --- MONTHLY BONUS SIMULATION ---
-        const mMonth = m.date.slice(0, 7);
-        if (mMonth !== currentMonth) {
-            if (currentMonth !== "" && monthTournamentMatches.length > 0) {
-                // To support accurate bonus simulation, we would need to run full tournament logic.
-                // For simplified Match Detail view, we acknowledge this limitation or implement lightweight bonus.
-                // We'll skip complex bonus re-calc here for performance, accepting minor ELO drift in history view.
-            }
-            currentMonth = mMonth;
-            monthTournamentMatches = [];
-        }
-        if (m.type === 'tournament') monthTournamentMatches.push(m);
-
         // --- MATCH ELO SIMULATION ---
         let s1 = Number(m.score1); let s2 = Number(m.score2);
         if (isNaN(s1) || isNaN(s2) || s1 < 0 || s2 < 0 || s1 === s2) continue;
@@ -618,6 +642,11 @@ export const getMatchRatingDetails = (matchId: string, matches: Match[], players
              const change = RATING_STEP_V1;
              t1Ids.forEach(pid => setR(pid, Math.min(MAX_RATING_V1, getR(pid) + (isWin ? change : -change))));
              t2Ids.forEach(pid => setR(pid, Math.max(MIN_RATING_V1, getR(pid) + (!isWin ? change : -change))));
+        }
+
+        // --- APPLY BONUS IF TRIGGER HIT ---
+        if (tournamentEndTriggers.has(m.id)) {
+            applyBonusSim(m.date.slice(0, 7));
         }
     }
 

@@ -238,6 +238,18 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({ matches, players
       
       if (currentMonthHistory.length === 0) return { dates: [], rows: [] };
 
+      // Pre-calculate which players played on which date in this month
+      const playedOnDate = new Map<string, Set<string>>();
+      const monthMatches = matches.filter(m => m.date.startsWith(currentMonthKey));
+      
+      monthMatches.forEach(m => {
+          const d = m.date.split('T')[0];
+          if (!playedOnDate.has(d)) playedOnDate.set(d, new Set());
+          const set = playedOnDate.get(d)!;
+          m.team1.forEach(id => set.add(String(id)));
+          m.team2.forEach(id => set.add(String(id)));
+      });
+
       // 3. Find index of the first entry of this month in the FULL history to determine Start Rating
       const firstDayOfMonthIdx = history.findIndex(h => h.date.startsWith(currentMonthKey));
 
@@ -245,48 +257,70 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({ matches, players
       const rows = activePlayers.map(player => {
           const pid = String(player.id);
           
-          // Determine Start of Month Rating
-          let startRating = player.initialPoints || 1000;
+          // Determine Start of Month Rating Logic
+          let startRating: number;
           
           if (firstDayOfMonthIdx > 0) {
-              // Rating at end of previous month
-              startRating = history[firstDayOfMonthIdx - 1].ratings[pid] || startRating;
-          } else if (firstDayOfMonthIdx === 0) {
-              // No previous history before this month, use initial
-              startRating = player.initialPoints || 1000;
-          } else {
-              // No matches this month in history? 
-              // Check if they had matches before (in previous months)
-              // Since we are iterating all active players, some might not have played this month.
-              const lastHistory = history[history.length - 1];
-              if (lastHistory && lastHistory.date < currentMonthKey) {
-                   startRating = lastHistory.ratings[pid] || startRating;
+              const prevMonthSnapshot = history[firstDayOfMonthIdx - 1];
+              // Check if player existed in previous month's snapshot
+              if (prevMonthSnapshot.ratings[pid] !== undefined) {
+                  startRating = prevMonthSnapshot.ratings[pid];
+              } else {
+                  // Player didn't exist last month. Use initial.
+                  startRating = player.initialPoints || 1000;
               }
+          } 
+          // Case B: This is the very first month of history
+          else {
+              startRating = player.initialPoints || 1000;
           }
+
+          // VISUAL CURSOR: This tracks the rating shown to the user.
+          // It basically "freezes" on the last known played match, unless a "Bonus" event occurs.
+          let visualRatingCursor = startRating;
 
           // Generate cell data for each date in this month
           const cells = currentMonthHistory.map((day, idx) => {
-              const currentRating = day.ratings[pid];
+              const currentSnapshotRating = day.ratings[pid];
               
-              if (currentRating === undefined) return null;
+              if (currentSnapshotRating === undefined) return null;
 
-              // Find previous rating for delta calculation
-              let prevR = startRating;
-              if (idx > 0) {
-                  prevR = currentMonthHistory[idx - 1].ratings[pid] || startRating;
+              const dayKey = day.date.split('T')[0];
+              const didPlay = playedOnDate.get(dayKey)?.has(pid) || false;
+              
+              // Detect Passive Change (Bonus/Penalty from Tournament end)
+              // If user didn't play, but rating shifted significantly (> 0.001), treat it as a valid update
+              const hasPassiveChange = Math.abs(currentSnapshotRating - visualRatingCursor) > 0.001;
+
+              let displayRating: number;
+              let delta = 0;
+              // Flag to indicate if we should visually emphasize this cell (Play OR Bonus)
+              let isActiveEvent = false; 
+
+              if (didPlay || hasPassiveChange) {
+                  // Update visual cursor to the new real rating
+                  displayRating = currentSnapshotRating;
+                  delta = displayRating - visualRatingCursor;
+                  visualRatingCursor = displayRating;
+                  isActiveEvent = true;
+              } else {
+                  // Freeze visual cursor
+                  displayRating = visualRatingCursor;
+                  delta = 0;
+                  isActiveEvent = false;
               }
 
-              const delta = currentRating - prevR;
-              return { rating: currentRating, delta };
+              return { rating: displayRating, delta, isActiveEvent };
           });
 
-          // Calculate Total Change: Current (Last recorded or current prop) - StartRating
-          const currentRating = cells.length > 0 && cells[cells.length - 1] 
+          // Calculate Total Change: Current Visual - StartRating
+          // This represents the total points gained/lost from PLAYED matches this month.
+          const currentVisualRating = cells.length > 0 && cells[cells.length - 1] 
                 ? cells[cells.length - 1]!.rating 
-                : (player.tournamentRating || startRating);
+                : startRating;
           
-          // Note: If player hasn't played this month, cells are empty, totalChange is 0 (or slight diff if tournamentRating drift)
-          const totalChange = currentRating - startRating;
+          let totalChange = currentVisualRating - startRating;
+          if (Math.abs(totalChange) < 0.005) totalChange = 0;
 
           return {
               player,
@@ -298,7 +332,7 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({ matches, players
 
       // 5. SORT BY TOTAL CHANGE DESCENDING (Most positive to most negative)
       rows.sort((a, b) => {
-          if (Math.abs(b.totalChange - a.totalChange) > 0.001) {
+          if (Math.abs(b.totalChange - a.totalChange) > 0.005) {
               return b.totalChange - a.totalChange;
           }
           // Fallback: Rating
@@ -500,9 +534,9 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({ matches, players
                                 {/* Monthly Fluctuation */}
                                 <td className="px-2 py-3 text-center border-r border-slate-100 bg-slate-50/30">
                                     <div className={`flex items-center justify-center gap-1 font-bold text-xs ${
-                                        row.totalChange > 0.001 ? 'text-green-600' : row.totalChange < -0.001 ? 'text-red-500' : 'text-slate-400'
+                                        row.totalChange > 0.005 ? 'text-green-600' : row.totalChange < -0.005 ? 'text-red-500' : 'text-slate-400'
                                     }`}>
-                                        {row.totalChange > 0.001 ? <TrendingUp className="w-3 h-3" /> : row.totalChange < -0.001 ? <TrendingDown className="w-3 h-3" /> : <Minus className="w-3 h-3" />}
+                                        {row.totalChange > 0.005 ? <TrendingUp className="w-3 h-3" /> : row.totalChange < -0.005 ? <TrendingDown className="w-3 h-3" /> : <Minus className="w-3 h-3" />}
                                         {row.totalChange > 0 ? '+' : ''}{row.totalChange.toFixed(2)}
                                     </div>
                                 </td>
@@ -512,15 +546,16 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({ matches, players
                                     <td key={cellIdx} className="px-2 py-3 text-center border-r border-slate-50 last:border-r-0">
                                         {cell ? (
                                             <div className="flex flex-col items-center">
-                                                <span className="font-bold text-slate-800 text-sm font-mono">
+                                                <span className={`font-bold text-sm font-mono ${cell.isActiveEvent ? 'text-slate-800' : 'text-slate-400'}`}>
                                                     {cell.rating.toFixed(2)}
                                                 </span>
-                                                {Math.abs(cell.delta) > 0.001 ? (
+                                                {/* Show delta if Active Event (Play OR Bonus) */}
+                                                {cell.isActiveEvent && Math.abs(cell.delta) > 0.001 ? (
                                                     <span className={`text-[10px] font-bold ${cell.delta > 0 ? 'text-green-600' : 'text-red-500'}`}>
                                                         {cell.delta > 0 ? '+' : ''}{cell.delta.toFixed(2)}
                                                     </span>
                                                 ) : (
-                                                    <span className="text-[10px] text-slate-300">-</span>
+                                                    <span className="text-[10px] text-slate-200">-</span>
                                                 )}
                                             </div>
                                         ) : (
@@ -537,7 +572,7 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({ matches, players
             )}
          </div>
          <div className="p-2 text-[10px] text-slate-400 text-center italic border-t border-slate-50">
-            * Bảng được sắp xếp theo mức tăng/giảm rating tích lũy từ đầu tháng.
+            * Bảng hiển thị mức tăng/giảm rating khi có trận đấu HOẶC khi có điểm thưởng giải đấu. Nếu không có biến động, điểm sẽ được giữ nguyên từ ngày gần nhất.
          </div>
       </Card>
 

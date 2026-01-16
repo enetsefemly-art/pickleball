@@ -296,12 +296,22 @@ export const PlayerProfile: React.FC<PlayerProfileProps> = ({ player, players, m
         });
 
         // 2. Identify Tournament Bonuses Explicitly for Display
-        // We will scan each month present in player's history
+        // We need to know EXACTLY when tournaments ended to pin the note.
         const bonusNotes = new Map<string, string>(); // Date -> "Bonus Hạng 1"
-        const uniqueMonths = new Set<string>();
-        analysis.playerMatches.forEach(m => uniqueMonths.add(m.date.slice(0, 7)));
+        const tournamentEndDates = new Map<string, string>(); // Month -> LastMatchDate
 
-        uniqueMonths.forEach(monthKey => {
+        // Scan all matches to find the end date of each tournament month
+        // We sort matches chronologically first
+        const sortedAllMatches = [...matches].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+        sortedAllMatches.forEach(m => {
+            if (m.type === 'tournament') {
+                const month = m.date.slice(0, 7);
+                const day = m.date.split('T')[0];
+                tournamentEndDates.set(month, day); // Will overwrite until the last one remains
+            }
+        });
+
+        tournamentEndDates.forEach((endDate, monthKey) => {
             const standings = getTournamentStandings(monthKey, players, matches);
             if (standings.length >= 3) {
                 // Check if player is in top 3
@@ -316,13 +326,8 @@ export const PlayerProfile: React.FC<PlayerProfileProps> = ({ player, players, m
                     const rawBonus = baseBonuses[place] * S;
                     const bonusVal = Math.min(0.15, Math.round(rawBonus * 100) / 100);
 
-                    // Find the LAST match date of this month for this player to attach the note
-                    const monthMatches = analysis.playerMatches.filter(m => m.date.startsWith(monthKey));
-                    if (monthMatches.length > 0) {
-                        // Sorted desc in analysis, so [0] is latest
-                        const lastMatchDate = monthMatches[0].date.split('T')[0];
-                        bonusNotes.set(lastMatchDate, `Thưởng Top ${place} (+${bonusVal.toFixed(2)})`);
-                    }
+                    // Set note on the TOURNAMENT END DATE, not just when player played
+                    bonusNotes.set(endDate, `Thưởng Top ${place} (+${bonusVal.toFixed(2)})`);
                 }
             }
         });
@@ -330,6 +335,7 @@ export const PlayerProfile: React.FC<PlayerProfileProps> = ({ player, players, m
         // 3. Standard Aggregation
         const summary = new Map<string, { date: string, wins: number, losses: number, netPoints: number, matchCount: number, ratingChange: number, note?: string }>();
 
+        // 3a. Process Actual Matches Played
         analysis.playerMatches.forEach(m => {
             const dateKey = m.date.split('T')[0];
             
@@ -369,8 +375,25 @@ export const PlayerProfile: React.FC<PlayerProfileProps> = ({ player, players, m
             }
         });
 
-        // Add any pure bonus dates (if player didn't play on the last day but got bonus? Unlikely with logic above, but safety check)
-        // Actually the logic attaches to last match, so it's covered.
+        // 3b. Process Dates with ONLY Bonuses (Ghost Entries)
+        // If a player got a bonus on a day they didn't play (e.g. final day), ensure it shows up
+        bonusNotes.forEach((note, dateKey) => {
+            if (!summary.has(dateKey)) {
+                summary.set(dateKey, {
+                    date: dateKey,
+                    wins: 0,
+                    losses: 0,
+                    netPoints: 0,
+                    matchCount: 0,
+                    ratingChange: ratingDeltaMap.get(dateKey) || 0, // Should find the bonus delta here
+                    note: note
+                });
+            } else {
+                // Ensure note is attached if key existed from playing
+                const existing = summary.get(dateKey)!;
+                if (!existing.note) existing.note = note;
+            }
+        });
 
         return Array.from(summary.values()).sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   }, [analysis.playerMatches, player.id, players, matches]);
