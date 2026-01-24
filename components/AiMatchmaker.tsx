@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { Player, Match } from '../types';
 import { Card } from './Card';
 import { findTopMatchupsForTeam, GeneratedMatch } from '../services/autoMatchmaker';
-import { Zap, Shield, Target, CheckCircle2, AlertCircle, Sparkles, TrendingUp, Users, Scale, Info, BrainCircuit } from 'lucide-react';
+import { Zap, Shield, Target, CheckCircle2, AlertCircle, Sparkles, TrendingUp, Users, Scale, Info, BrainCircuit, History, Swords } from 'lucide-react';
 
 interface AiMatchmakerProps {
   players: Player[];
@@ -73,6 +73,77 @@ export const AiMatchmaker: React.FC<AiMatchmakerProps> = ({ players, matches }) 
   };
 
   const getPlayerName = (id: string) => players.find(p => String(p.id) === id)?.name || 'Unknown';
+
+  // --- NEW LOGIC: PAIR HISTORY ANALYSIS ---
+  const pairHistory = useMemo(() => {
+      if (!p1Id || !p2Id || p1Id === p2Id) return [];
+
+      const historyMap = new Map<string, {
+          opponents: string[],
+          wins: number,
+          losses: number,
+          total: number,
+          lastDate: string
+      }>();
+
+      matches.forEach(m => {
+          // Check if p1 and p2 are teammates
+          const t1 = m.team1.map(String);
+          const t2 = m.team2.map(String);
+
+          const isHomeInT1 = t1.includes(p1Id) && t1.includes(p2Id);
+          const isHomeInT2 = t2.includes(p1Id) && t2.includes(p2Id);
+
+          // Must be playing together in this match
+          if (!isHomeInT1 && !isHomeInT2) return;
+
+          // Identify Opponents (Must be exactly 2 opponents for doubles context)
+          const opponentIds = isHomeInT1 ? t2 : t1;
+          if (opponentIds.length !== 2) return; 
+
+          const oppKey = opponentIds.slice().sort().join('-'); 
+
+          if (!historyMap.has(oppKey)) {
+              historyMap.set(oppKey, {
+                  opponents: opponentIds,
+                  wins: 0,
+                  losses: 0,
+                  total: 0,
+                  lastDate: m.date
+              });
+          }
+
+          const stats = historyMap.get(oppKey)!;
+          stats.total++;
+          if (new Date(m.date) > new Date(stats.lastDate)) stats.lastDate = m.date;
+
+          // Determine Winner
+          let s1 = Number(m.score1);
+          let s2 = Number(m.score2);
+          if (isNaN(s1)) s1 = 0; if (isNaN(s2)) s2 = 0;
+          if (s1 === s2) return; // Skip draws
+
+          let winner = s1 > s2 ? 1 : 2;
+          // Fallback to explicit winner field if scores are missing/equal but winner exists
+          if (s1 === 0 && s2 === 0 && m.winner) winner = Number(m.winner) === 1 ? 1 : 2;
+
+          const homeWon = (isHomeInT1 && winner === 1) || (isHomeInT2 && winner === 2);
+          if (homeWon) stats.wins++;
+          else stats.losses++;
+      });
+
+      // Convert to array and sort by Win Rate (Desc) then Total Matches (Desc)
+      return Array.from(historyMap.values()).sort((a, b) => {
+          const wrA = a.total > 0 ? a.wins / a.total : 0;
+          const wrB = b.total > 0 ? b.wins / b.total : 0;
+          
+          // Higher win rate first
+          if (wrB !== wrA) return wrB - wrA;
+          
+          // If win rate is same, prioritize more matches played
+          return b.total - a.total;
+      });
+  }, [p1Id, p2Id, matches]);
 
   return (
     <div className="space-y-6">
@@ -171,6 +242,50 @@ export const AiMatchmaker: React.FC<AiMatchmakerProps> = ({ players, matches }) 
                         </p>
                     </div>
                 </Card>
+
+                {/* PAIR HISTORY (NEW FEATURE) */}
+                {pairHistory.length > 0 && (
+                    <Card title="Lịch Sử Cặp Này" classNameTitle="bg-slate-100 text-slate-700 font-bold uppercase text-xs tracking-wider flex items-center gap-2">
+                        <div className="overflow-x-auto max-h-[300px] custom-scrollbar">
+                            <table className="w-full text-xs text-left">
+                                <thead className="bg-slate-50 text-slate-500 font-bold uppercase sticky top-0 border-b border-slate-200">
+                                    <tr>
+                                        <th className="py-2 pl-2">Đối Thủ</th>
+                                        <th className="py-2 text-center">W-L</th>
+                                        <th className="py-2 pr-2 text-right">% Thắng</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100">
+                                    {pairHistory.map((item, idx) => {
+                                        const winRate = Math.round((item.wins / item.total) * 100);
+                                        return (
+                                            <tr key={idx} className="hover:bg-slate-50">
+                                                <td className="py-2 pl-2">
+                                                    <div className="font-bold text-slate-800 leading-tight">
+                                                        {getPlayerName(item.opponents[0])}
+                                                    </div>
+                                                    <div className="font-bold text-slate-800 leading-tight">
+                                                        {getPlayerName(item.opponents[1])}
+                                                    </div>
+                                                </td>
+                                                <td className="py-2 text-center whitespace-nowrap">
+                                                    <span className="text-green-600 font-bold">{item.wins}</span>
+                                                    <span className="text-slate-300 mx-1">-</span>
+                                                    <span className="text-red-500 font-bold">{item.losses}</span>
+                                                </td>
+                                                <td className="py-2 pr-2 text-right">
+                                                    <span className={`font-mono font-bold px-1.5 py-0.5 rounded ${winRate >= 50 ? 'bg-green-100 text-green-700' : 'bg-red-50 text-red-600'}`}>
+                                                        {winRate}%
+                                                    </span>
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
+                                </tbody>
+                            </table>
+                        </div>
+                    </Card>
+                )}
             </div>
 
             {/* RIGHT: Results */}
