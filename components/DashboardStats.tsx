@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Match, Player } from '../types';
 import { Card } from './Card';
-import { Trophy, TrendingUp, Users, Banknote, Medal, Calendar, Grid3X3, Filter, Award, TrendingDown, Activity, Minus } from 'lucide-react';
+import { Trophy, TrendingUp, Users, Banknote, Medal, Calendar, Grid3X3, Filter, Award, TrendingDown, Activity, Minus, Scale, ArrowUpCircle, ArrowDownCircle, ArrowRightLeft, ArrowUpDown, Percent, Hash } from 'lucide-react';
 import { HeadToHeadMatrix } from './HeadToHeadMatrix';
 import { getDailyRatingHistory } from '../services/storageService';
 
@@ -26,15 +26,44 @@ interface PairStat {
   bettingPoints: number;
 }
 
+// Handicap Stats Interface
+interface HandicapCategoryStats {
+    total: number;
+    wins: number;
+}
+
+interface PlayerHandicapStats {
+    id: string;
+    name: string;
+    balanced: HandicapCategoryStats;
+    underdog: HandicapCategoryStats;
+    favorite: HandicapCategoryStats;
+}
+
+type SortMetric = 'count' | 'rate';
+type SortDirection = 'asc' | 'desc';
+type SortKey = 'name' | 'total' | 'balanced' | 'underdog' | 'favorite';
+
 export const DashboardStats: React.FC<DashboardStatsProps> = ({ matches, players }) => {
   // Added 'all' to allowed state types
   const [winrateTab, setWinrateTab] = useState<'betting' | 'tournament' | 'all'>('all');
   
-  // Matrix Filter State
-  const [matrixTimeFilter, setMatrixTimeFilter] = useState<'all' | 'month'>('all');
-  
   // Helper to get current month key YYYY-MM
   const currentMonthKey = new Date().toISOString().slice(0, 7);
+
+  // Win Rate Table Time Filter (Default: Current Month)
+  const [winRateTimeFilter, setWinRateTimeFilter] = useState<string>(currentMonthKey);
+
+  // Handicap Table Time Filter (Default: Current Month) - Independent
+  const [handicapTimeFilter, setHandicapTimeFilter] = useState<string>(currentMonthKey);
+  
+  // Handicap Sorting State
+  const [handicapSortKey, setHandicapSortKey] = useState<SortKey>('total');
+  const [handicapSortDir, setHandicapSortDir] = useState<SortDirection>('desc');
+  const [handicapSortMetric, setHandicapSortMetric] = useState<SortMetric>('count'); // 'count' or 'rate'
+
+  // Matrix Filter State
+  const [matrixTimeFilter, setMatrixTimeFilter] = useState<'all' | 'month'>('all');
   
   // Create a lookup map, ensuring keys are always Strings
   const playerLookup = useMemo(() => new Map(players.map(p => [String(p.id), p])), [players]);
@@ -43,14 +72,23 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({ matches, players
   const activePlayers = useMemo(() => players.filter(p => p.isActive !== false), [players]);
   const activePlayerIds = useMemo(() => new Set(activePlayers.map(p => String(p.id))), [activePlayers]);
 
-  // --- CALCULATION LOGIC ---
+  // --- GET AVAILABLE MONTHS FOR DROPDOWN ---
+  const availableMonths = useMemo(() => {
+      const months = new Set<string>();
+      matches.forEach(m => months.add(m.date.slice(0, 7)));
+      // Add current month if not exists (for empty state)
+      months.add(currentMonthKey);
+      return Array.from(months).sort().reverse();
+  }, [matches, currentMonthKey]);
+
+  // --- GLOBAL MONTHLY CALCULATION (Keep for Highlights & Financials) ---
   const stats = useMemo<{ indStats: Map<string, IndStat>; pairStats: Map<string, PairStat> }>(() => {
     const monthMatches = matches.filter(m => m.date.startsWith(currentMonthKey));
 
     // 1. Individual Stats (For Highlights)
     const indStats = new Map<string, IndStat>();
     
-    // 2. Pair Stats (For Tables)
+    // 2. Pair Stats (For Betting Table Only now)
     const pairStats = new Map<string, PairStat>();
 
     // Ensure IDs are strings before processing
@@ -174,40 +212,307 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({ matches, players
   }, [stats.indStats, playerLookup]);
 
 
-  // --- PREPARE TABLE DATA ---
+  // --- INDEPENDENT CALCULATION FOR WIN RATE TABLE (To support Time Filter) ---
   const winrateTableData = useMemo(() => {
-    let sourceData: PairStat[] = [];
-
-    if (winrateTab === 'all') {
-        // Aggregate betting and tournament stats for the same pair
-        const aggMap = new Map<string, PairStat>();
-        stats.pairStats.forEach((stat) => {
-            if (!aggMap.has(stat.id)) {
-                // Clone the object to avoid mutation issues
-                aggMap.set(stat.id, { ...stat });
-            } else {
-                const existing = aggMap.get(stat.id);
-                if (existing) {
-                    existing.wins += stat.wins;
-                    existing.matches += stat.matches;
-                }
-                // Note: We don't really care about mixed 'type' here as it's for 'all' view
-            }
-        });
-        sourceData = Array.from(aggMap.values());
-    } else {
-        sourceData = (Array.from(stats.pairStats.values()) as PairStat[])
-            .filter((p: PairStat) => p.type === winrateTab);
+    // We calculate from scratch using 'matches' to allow "All Time" or specific months
+    // independent of the global dashboard month filter.
+    
+    // 1. Filter Matches by Time
+    let filteredMatches = matches;
+    if (winRateTimeFilter !== 'all') {
+        filteredMatches = matches.filter(m => m.date.startsWith(winRateTimeFilter));
     }
 
-    return sourceData.sort((a: PairStat, b: PairStat) => {
-            const wrA = a.matches ? (a.wins / a.matches) : 0;
-            const wrB = b.matches ? (b.wins / b.matches) : 0;
-            if (wrB !== wrA) return wrB - wrA;
-            return b.matches - a.matches;
-        });
-  }, [stats.pairStats, winrateTab]);
+    // 2. Filter by Type Tab
+    if (winrateTab !== 'all') {
+        filteredMatches = filteredMatches.filter(m => (m.type || 'betting') === winrateTab);
+    }
 
+    const pairMap = new Map<string, { id: string, names: string, wins: number, matches: number }>();
+    const getPairId = (ids: string[]) => ids.map(String).sort().join('-');
+    const getPairName = (ids: string[]) => ids.map(id => playerLookup.get(String(id))?.name || 'Unknown').join(' & ');
+
+    filteredMatches.forEach(m => {
+        let s1 = Number(m.score1);
+        let s2 = Number(m.score2);
+        if (isNaN(s1) || isNaN(s2) || s1 === s2) return;
+
+        const isTeam1Win = s1 > s2;
+
+        const process = (ids: string[], isWin: boolean) => {
+            // Must allow pairs even if one player is inactive? No, consistent with other tables
+            if (ids.length !== 2) return;
+            if (!ids.every(id => activePlayerIds.has(String(id)))) return;
+
+            const pId = getPairId(ids);
+            if (!pairMap.has(pId)) {
+                pairMap.set(pId, { id: pId, names: getPairName(ids), wins: 0, matches: 0 });
+            }
+            const s = pairMap.get(pId)!;
+            s.matches++;
+            if (isWin) s.wins++;
+        };
+
+        process(m.team1.map(String), isTeam1Win);
+        process(m.team2.map(String), !isTeam1Win);
+    });
+
+    return Array.from(pairMap.values()).sort((a, b) => {
+        const wrA = a.matches ? (a.wins / a.matches) : 0;
+        const wrB = b.matches ? (b.wins / b.matches) : 0;
+        if (wrB !== wrA) return wrB - wrA;
+        return b.matches - a.matches;
+    });
+  }, [matches, winRateTimeFilter, winrateTab, playerLookup, activePlayerIds]);
+
+  // --- NEW: HANDICAP STATS CALCULATION (Independent Filter + Form Included) ---
+  const handicapStatsData = useMemo(() => {
+      // 1. Simulation Setup
+      const currentRatings = new Map<string, number>();
+      activePlayers.forEach(p => currentRatings.set(String(p.id), p.initialPoints || 1000));
+
+      // History tracker for Form: ID -> array of boolean (last 5 results: win=true, loss=false)
+      const playerHistory = new Map<string, boolean[]>();
+
+      const statsMap = new Map<string, PlayerHandicapStats>();
+      activePlayers.forEach(p => {
+          statsMap.set(String(p.id), {
+              id: String(p.id),
+              name: p.name,
+              balanced: { total: 0, wins: 0 },
+              underdog: { total: 0, wins: 0 },
+              favorite: { total: 0, wins: 0 }
+          });
+      });
+
+      // 2. Sort all matches chronologically
+      const allSortedMatches = [...matches].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+      // Helper to calculate form
+      const getForm = (pid: string) => {
+          const hist = playerHistory.get(pid) || [];
+          if (hist.length === 0) return 0;
+          // Simple form: Win Rate of last 5 matches.
+          // 100% win = +0.25, 0% win = -0.25
+          const wins = hist.filter(Boolean).length;
+          const winRate = wins / hist.length;
+          return (winRate - 0.5) * 0.5; // Scale to +/- 0.25
+      };
+
+      // 3. Iterate
+      allSortedMatches.forEach(m => {
+          // EXCLUDE TOURNAMENT MATCHES FROM THIS STATS ENTIRELY
+          if (m.type === 'tournament') return;
+
+          let s1 = Number(m.score1);
+          let s2 = Number(m.score2);
+          if (isNaN(s1)) s1 = 0; if (isNaN(s2)) s2 = 0;
+          if (s1 === s2) return; // Skip draws
+
+          const team1Ids = m.team1.map(String);
+          const team2Ids = m.team2.map(String);
+          
+          // Current Ratings
+          const getR = (id: string) => currentRatings.get(id) || 1000;
+          
+          // Calculate Average Team Rating INCLUDING FORM
+          const t1Avg = team1Ids.reduce((sum, id) => sum + getR(id) + getForm(id), 0) / (team1Ids.length || 1);
+          const t2Avg = team2Ids.reduce((sum, id) => sum + getR(id) + getForm(id), 0) / (team2Ids.length || 1);
+          
+          const diff = t1Avg - t2Avg;
+          
+          const isTeam1Win = s1 > s2;
+          
+          // Check if match should be counted in Stats
+          let shouldCount = true;
+          if (handicapTimeFilter !== 'all' && !m.date.startsWith(handicapTimeFilter)) shouldCount = false;
+
+          // Update Stats
+          if (shouldCount) {
+              const processPlayer = (pid: string, isTeam1: boolean) => {
+                  if (!activePlayerIds.has(pid)) return;
+                  const pStats = statsMap.get(pid);
+                  if (!pStats) return;
+
+                  const isWin = isTeam1 ? isTeam1Win : !isTeam1Win;
+                  
+                  let category: 'balanced' | 'underdog' | 'favorite' = 'balanced';
+                  
+                  if (Math.abs(diff) <= 0.25) {
+                      category = 'balanced';
+                  } else {
+                      if (isTeam1) {
+                          category = diff > 0.25 ? 'favorite' : 'underdog';
+                      } else {
+                          category = diff > 0.25 ? 'underdog' : 'favorite';
+                      }
+                  }
+
+                  pStats[category].total++;
+                  if (isWin) pStats[category].wins++;
+              };
+
+              team1Ids.forEach(pid => processPlayer(pid, true));
+              team2Ids.forEach(pid => processPlayer(pid, false));
+          }
+
+          // Update Ratings (Simplified ELO)
+          const isEligibleForRating = new Date(m.date) >= new Date('2025-12-01');
+          if (isEligibleForRating) {
+             const V2_K = 0.18;
+             const expectedA = 1 / (1 + Math.exp(-(diff) / 0.45)); // using diff with form here implies match prediction uses form, which is correct for ELO
+             const resultA = isTeam1Win ? 1 : 0;
+             const change = V2_K * (resultA - expectedA); 
+             
+             team1Ids.forEach(pid => currentRatings.set(pid, (currentRatings.get(pid)||1000) + change));
+             team2Ids.forEach(pid => currentRatings.set(pid, (currentRatings.get(pid)||1000) - change));
+          }
+
+          // Update History for Form
+          const updateHistory = (ids: string[], win: boolean) => {
+              ids.forEach(pid => {
+                  if (!playerHistory.has(pid)) playerHistory.set(pid, []);
+                  const h = playerHistory.get(pid)!;
+                  h.push(win);
+                  if (h.length > 5) h.shift(); // Keep last 5
+              });
+          };
+          updateHistory(team1Ids, isTeam1Win);
+          updateHistory(team2Ids, !isTeam1Win);
+      });
+
+      const filteredList = Array.from(statsMap.values())
+          .filter(p => (p.balanced.total + p.underdog.total + p.favorite.total) > 0);
+
+      // --- SORTING LOGIC ---
+      const sortedList = filteredList.sort((a, b) => {
+          let valA = 0;
+          let valB = 0;
+
+          const getRate = (wins: number, total: number) => total > 0 ? (wins / total) : 0;
+
+          if (handicapSortKey === 'name') {
+              return handicapSortDir === 'asc' ? a.name.localeCompare(b.name) : b.name.localeCompare(a.name);
+          } else if (handicapSortKey === 'total') {
+              valA = a.balanced.total + a.underdog.total + a.favorite.total;
+              valB = b.balanced.total + b.underdog.total + b.favorite.total;
+          } else {
+              // Sorting by specific category columns (Balanced, Underdog, Favorite)
+              // Depends on metric: count vs rate
+              const catA = a[handicapSortKey];
+              const catB = b[handicapSortKey];
+              
+              if (handicapSortMetric === 'count') {
+                  valA = catA.total;
+                  valB = catB.total;
+              } else {
+                  valA = getRate(catA.wins, catA.total);
+                  valB = getRate(catB.wins, catB.total);
+              }
+          }
+
+          if (valA !== valB) {
+              return handicapSortDir === 'asc' ? valA - valB : valB - valA;
+          }
+          return 0; // Fallback?
+      });
+
+      return sortedList;
+
+  }, [matches, activePlayers, activePlayerIds, handicapTimeFilter, handicapSortKey, handicapSortDir, handicapSortMetric]);
+
+  // --- NEW: HANDICAP SORT HANDLER ---
+  const handleHandicapSort = (key: SortKey) => {
+      if (handicapSortKey === key) {
+          setHandicapSortDir(prev => prev === 'asc' ? 'desc' : 'asc');
+      } else {
+          setHandicapSortKey(key);
+          setHandicapSortDir('desc');
+      }
+  };
+
+  // --- NEW: RATING EXCHANGE MATRIX CALCULATION ---
+  const ratingMatrixData = useMemo(() => {
+      // 1. Setup Simulation (Similar to handicap but we need granular deltas)
+      const currentRatings = new Map<string, number>();
+      activePlayers.forEach(p => currentRatings.set(String(p.id), p.initialPoints || 1000));
+      
+      // Structure: Map<PlayerId, Map<OpponentId, number>> (Net points gained from opponent)
+      const matrix = new Map<string, Map<string, number>>();
+      
+      const ensureInit = (p1: string, p2: string) => {
+          if (!matrix.has(p1)) matrix.set(p1, new Map());
+          if (!matrix.get(p1)!.has(p2)) matrix.get(p1)!.set(p2, 0);
+      };
+
+      const sortedMatches = [...matches].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+      sortedMatches.forEach(m => {
+          const isEligibleForRating = new Date(m.date) >= new Date('2025-12-01');
+          // We assume we want to track rating exchange regardless of type (Betting/Tournament) 
+          // as long as it affected rating.
+          // Check filter time for DISPLAY accumulation
+          let shouldCount = true;
+          if (matrixTimeFilter === 'month' && !m.date.startsWith(currentMonthKey)) shouldCount = false;
+
+          let s1 = Number(m.score1);
+          let s2 = Number(m.score2);
+          if (isNaN(s1)) s1 = 0; if (isNaN(s2)) s2 = 0;
+          if (s1 === s2) return;
+
+          const t1Ids = m.team1.map(String);
+          const t2Ids = m.team2.map(String);
+          const isTeam1Win = s1 > s2;
+
+          // Calculate Rating Change (Simplified ELO logic matching update loop)
+          // Note: We use base rating for calc here to keep it simple and consistent with standard ELO updates
+          // (Form affects prediction but usually ELO update formula uses raw ratings).
+          const getR = (id: string) => currentRatings.get(id) || 1000;
+          const t1Avg = t1Ids.reduce((sum, id) => sum + getR(id), 0) / (t1Ids.length || 1);
+          const t2Avg = t2Ids.reduce((sum, id) => sum + getR(id), 0) / (t2Ids.length || 1);
+          
+          let change = 0;
+          if (isEligibleForRating) {
+              const V2_K = 0.18;
+              const expectedA = 1 / (1 + Math.exp(-(t1Avg - t2Avg) / 0.45));
+              const resultA = isTeam1Win ? 1 : 0;
+              change = V2_K * (resultA - expectedA);
+              
+              // Apply update to simulated ratings
+              t1Ids.forEach(pid => currentRatings.set(pid, (currentRatings.get(pid)||1000) + change));
+              t2Ids.forEach(pid => currentRatings.set(pid, (currentRatings.get(pid)||1000) - change));
+          }
+
+          // Accumulate Matrix Data if within filter
+          if (shouldCount && isEligibleForRating) {
+              // For every P1 in Team 1, they engaged with every P2 in Team 2
+              t1Ids.forEach(p1 => {
+                  if (!activePlayerIds.has(p1)) return;
+                  t2Ids.forEach(p2 => {
+                      if (!activePlayerIds.has(p2)) return;
+                      ensureInit(p1, p2);
+                      ensureInit(p2, p1);
+                      
+                      // P1 gained 'change' (if win) or lost 'change' (if loss).
+                      // Note: 'change' calculated above is positive if T1 exceeded expectation (win) or negative if T1 underperformed.
+                      // Wait, standard formula: resultA (1) - expected. If A wins, change is positive.
+                      // So P1 gains `change` relative to pool.
+                      // We attribute this gain vs P2.
+                      
+                      const p1Map = matrix.get(p1)!;
+                      const p2Map = matrix.get(p2)!;
+                      
+                      p1Map.set(p2, p1Map.get(p2)! + change);
+                      p2Map.set(p1, p2Map.get(p1)! - change);
+                  });
+              });
+          }
+      });
+
+      return matrix;
+  }, [matches, activePlayers, activePlayerIds, matrixTimeFilter, currentMonthKey]);
+
+  // --- BETTING POINTS TABLE DATA (Uses global stats - Current Month Only) ---
   const bettingPointsTableData = useMemo(() => {
     return Array.from(stats.pairStats.values())
         .filter((p: PairStat) => p.type === 'betting')
@@ -353,6 +658,34 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({ matches, players
       if (matrixTimeFilter === 'all') return matches;
       return matches.filter(m => m.date.startsWith(currentMonthKey));
   }, [matches, matrixTimeFilter, currentMonthKey]);
+
+  // --- ACTIVE PLAYERS FOR MATRIX ---
+  const matrixActivePlayers = useMemo(() => {
+      const activeIds = new Set<string>();
+      matrixMatches.forEach(m => {
+          m.team1.forEach(id => activeIds.add(String(id)));
+          m.team2.forEach(id => activeIds.add(String(id)));
+      });
+      return players
+        .filter(p => activeIds.has(String(p.id)))
+        .sort((a, b) => a.name.localeCompare(b.name));
+  }, [players, matrixMatches]);
+
+  const renderSortHeader = (label: string, sortKey: SortKey, currentKey: SortKey, currentDir: SortDirection) => {
+      const isActive = currentKey === sortKey;
+      return (
+          <div className={`flex items-center justify-center gap-1 cursor-pointer select-none group ${isActive ? 'text-slate-800' : 'text-slate-500'}`} onClick={() => handleHandicapSort(sortKey)}>
+              {label}
+              <div className="flex flex-col">
+                  {isActive ? (
+                      currentDir === 'asc' ? <ArrowUpCircle className="w-3 h-3 text-pickle-600" /> : <ArrowDownCircle className="w-3 h-3 text-pickle-600" />
+                  ) : (
+                      <ArrowUpDown className="w-3 h-3 text-slate-300 group-hover:text-slate-400" />
+                  )}
+              </div>
+          </div>
+      );
+  };
 
 
   return (
@@ -576,44 +909,207 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({ matches, players
          </div>
       </Card>
 
-      {/* 4. WINRATE TABLE */}
+      {/* 4. HANDICAP STATS TABLE (NEW) */}
       <Card className="overflow-hidden p-0 sm:p-6" classNameTitle="px-4 sm:px-6">
          <div className="flex flex-col sm:flex-row items-center justify-between border-b border-slate-100 p-4 gap-4 bg-slate-50/50">
+            <h3 className="font-bold text-slate-800 flex items-center gap-2 text-sm sm:text-base">
+                <Scale className="w-5 h-5 text-purple-500" />
+                Thống Kê Thế Trận (Cân/Trên/Dưới)
+            </h3>
+            
+            <div className="flex flex-col sm:flex-row gap-2">
+                 {/* Sort Metric Toggle */}
+                 <div className="flex items-center gap-1 bg-slate-200 p-1 rounded-lg">
+                     <button
+                        onClick={() => setHandicapSortMetric('count')}
+                        className={`text-xs px-2 py-1 rounded font-bold flex items-center gap-1 ${handicapSortMetric === 'count' ? 'bg-white shadow text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}
+                     >
+                         <Hash className="w-3 h-3" /> Số Lượng
+                     </button>
+                     <button
+                        onClick={() => setHandicapSortMetric('rate')}
+                        className={`text-xs px-2 py-1 rounded font-bold flex items-center gap-1 ${handicapSortMetric === 'rate' ? 'bg-white shadow text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}
+                     >
+                         <Percent className="w-3 h-3" /> Tỉ Lệ
+                     </button>
+                 </div>
+
+                 <select 
+                    value={handicapTimeFilter}
+                    onChange={(e) => setHandicapTimeFilter(e.target.value)}
+                    className="bg-white border border-slate-300 text-slate-700 text-xs sm:text-sm rounded-lg px-3 py-1.5 focus:ring-2 focus:ring-pickle-500 focus:border-pickle-500 outline-none font-bold"
+                >
+                    <option value="all">Toàn bộ thời gian</option>
+                    {availableMonths.map(month => (
+                        <option key={month} value={month}>Tháng {month.slice(5)}/{month.slice(0,4)}</option>
+                    ))}
+                </select>
+            </div>
+         </div>
+         
+         <div className="w-full overflow-x-auto">
+            <table className="w-full text-xs text-left min-w-[700px]">
+                <thead className="bg-slate-50 text-slate-500 font-bold uppercase text-[10px]">
+                    <tr>
+                        <th className="px-4 py-3 w-40 sticky left-0 bg-slate-50 z-10 border-r border-slate-200 cursor-pointer hover:bg-slate-100" onClick={() => handleHandicapSort('name')}>
+                            <div className="flex items-center gap-1">
+                                Người Chơi
+                                {handicapSortKey === 'name' && (handicapSortDir === 'asc' ? <ArrowUpCircle className="w-3 h-3 text-slate-400" /> : <ArrowDownCircle className="w-3 h-3 text-slate-400" />)}
+                            </div>
+                        </th>
+                        <th className="px-2 py-3 text-center w-24 border-r border-slate-100 bg-slate-50 text-slate-700">
+                            {renderSortHeader('Tổng Trận', 'total', handicapSortKey, handicapSortDir)}
+                        </th>
+                        <th className="px-2 py-3 text-center bg-blue-50/50 text-blue-700 border-r border-slate-100">
+                            {renderSortHeader('Kèo Cân', 'balanced', handicapSortKey, handicapSortDir)}
+                        </th>
+                        <th className="px-2 py-3 text-center bg-red-50/50 text-red-700 border-r border-slate-100">
+                            {renderSortHeader('Kèo Dưới', 'underdog', handicapSortKey, handicapSortDir)}
+                        </th>
+                        <th className="px-2 py-3 text-center bg-green-50/50 text-green-700">
+                            {renderSortHeader('Kèo Trên', 'favorite', handicapSortKey, handicapSortDir)}
+                        </th>
+                    </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                    {handicapStatsData.map((stat, idx) => {
+                        const totalMatches = stat.balanced.total + stat.underdog.total + stat.favorite.total;
+                        
+                        const renderCell = (data: HandicapCategoryStats, colorClass: string, barColor: string) => {
+                            if (data.total === 0) return <span className="text-slate-300">-</span>;
+                            const rate = Math.round((data.wins / data.total) * 100);
+                            const share = Math.round((data.total / totalMatches) * 100); // Proportion of total games
+
+                            return (
+                                <div className="flex flex-col items-center justify-center gap-0.5 w-full">
+                                    <span className={`font-black text-sm ${rate >= 50 ? 'text-green-600' : 'text-red-500'}`}>
+                                        {rate}%
+                                    </span>
+                                    <div className="flex items-center gap-1 mt-0.5">
+                                        <span className="text-[11px] text-slate-800 font-bold">
+                                            {data.total}
+                                        </span>
+                                        <span className="text-[9px] text-slate-400 font-medium">
+                                            ({share}%)
+                                        </span>
+                                    </div>
+                                    <div className="text-[10px] text-slate-400 font-medium hidden">
+                                        ({data.wins} thắng)
+                                    </div>
+                                    {/* Share Bar */}
+                                    <div className="w-16 h-1 bg-slate-200 rounded-full mt-1 overflow-hidden">
+                                        <div className={`h-full ${barColor}`} style={{ width: `${share}%` }}></div>
+                                    </div>
+                                </div>
+                            );
+                        };
+
+                        return (
+                            <tr key={stat.id} className="hover:bg-slate-50/50">
+                                <td className="px-4 py-3 font-medium text-slate-900 sticky left-0 bg-white z-10 border-r border-slate-100">
+                                    <div className="flex items-center gap-2">
+                                        <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${idx < 3 ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-500'}`}>
+                                            {idx + 1}
+                                        </div>
+                                        <span className="truncate">{stat.name}</span>
+                                    </div>
+                                </td>
+                                <td className="px-2 py-3 text-center border-r border-slate-100 font-bold text-slate-700 text-sm">
+                                    {totalMatches}
+                                </td>
+                                <td className="px-2 py-3 text-center border-r border-slate-50 bg-blue-50/10">
+                                    {renderCell(stat.balanced, 'blue', 'bg-blue-400')}
+                                </td>
+                                <td className="px-2 py-3 text-center border-r border-slate-50 bg-red-50/10">
+                                    {renderCell(stat.underdog, 'red', 'bg-red-400')}
+                                </td>
+                                <td className="px-2 py-3 text-center bg-green-50/10">
+                                    {renderCell(stat.favorite, 'green', 'bg-green-400')}
+                                </td>
+                            </tr>
+                        );
+                    })}
+                    {handicapStatsData.length === 0 && (
+                        <tr><td colSpan={5} className="text-center py-6 text-slate-400">Chưa có dữ liệu phù hợp.</td></tr>
+                    )}
+                </tbody>
+            </table>
+         </div>
+         <div className="p-3 bg-slate-50 border-t border-slate-100 text-[10px] text-slate-500">
+            <div className="font-bold mb-1 uppercase tracking-wider text-slate-400">Định nghĩa (Theo chênh lệch Rating Thực Tế = Gốc + Form):</div>
+            <div className="flex flex-wrap gap-x-4 gap-y-1">
+                <div className="flex items-center gap-1.5">
+                    <div className="w-2 h-2 rounded-full bg-blue-500"></div>
+                    <span><b>Kèo Cân:</b> Chênh lệch ≤ 0.25</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                    <div className="w-2 h-2 rounded-full bg-green-500"></div>
+                    <span><b>Kèo Trên:</b> Rating cao hơn &gt; 0.25</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                    <div className="w-2 h-2 rounded-full bg-red-500"></div>
+                    <span><b>Kèo Dưới:</b> Rating thấp hơn &gt; 0.25</span>
+                </div>
+            </div>
+            <div className="mt-1 text-[9px] text-slate-400 italic">
+                * Form (Phong độ) = (Tỉ lệ thắng 5 trận gần nhất - 50%) * 0.5 (Tối đa +/- 0.25 điểm).
+            </div>
+         </div>
+      </Card>
+
+      {/* 4. WINRATE TABLE (Updated with Time Filter) */}
+      <Card className="overflow-hidden p-0 sm:p-6" classNameTitle="px-4 sm:px-6">
+         <div className="flex flex-col xl:flex-row items-center justify-between border-b border-slate-100 p-4 gap-4 bg-slate-50/50">
             <h3 className="font-bold text-slate-800 flex items-center gap-2 text-sm sm:text-base">
                 <TrendingUp className="w-5 h-5 text-slate-500" />
                 Tỉ Lệ Thắng Cặp Đôi
             </h3>
-            <div className="flex bg-slate-200 rounded-lg p-1 w-full sm:w-auto">
-                <button 
-                    onClick={() => setWinrateTab('all')}
-                    className={`flex-1 sm:flex-none px-3 py-1.5 rounded-md text-[10px] sm:text-sm font-bold transition-all ${
-                        winrateTab === 'all' 
-                        ? 'bg-purple-600 text-white shadow-md' 
-                        : 'text-slate-600 hover:text-slate-900'
-                    }`}
+            
+            <div className="flex flex-col sm:flex-row gap-2 w-full xl:w-auto">
+                {/* Time Filter Dropdown */}
+                <select 
+                    value={winRateTimeFilter}
+                    onChange={(e) => setWinRateTimeFilter(e.target.value)}
+                    className="bg-white border border-slate-300 text-slate-700 text-xs sm:text-sm rounded-lg px-3 py-1.5 focus:ring-2 focus:ring-pickle-500 focus:border-pickle-500 outline-none font-bold"
                 >
-                    Tất Cả
-                </button>
-                <button 
-                    onClick={() => setWinrateTab('betting')}
-                    className={`flex-1 sm:flex-none px-3 py-1.5 rounded-md text-[10px] sm:text-sm font-bold transition-all ${
-                        winrateTab === 'betting' 
-                        ? 'bg-pickle-600 text-white shadow-md' 
-                        : 'text-slate-600 hover:text-slate-900'
-                    }`}
-                >
-                    Kèo
-                </button>
-                <button 
-                    onClick={() => setWinrateTab('tournament')}
-                    className={`flex-1 sm:flex-none px-3 py-1.5 rounded-md text-[10px] sm:text-sm font-bold transition-all ${
-                        winrateTab === 'tournament' 
-                        ? 'bg-blue-600 text-white shadow-md' 
-                        : 'text-slate-600 hover:text-slate-900'
-                    }`}
-                >
-                    Giải
-                </button>
+                    <option value="all">Toàn bộ thời gian</option>
+                    {availableMonths.map(month => (
+                        <option key={month} value={month}>Tháng {month.slice(5)}/{month.slice(0,4)}</option>
+                    ))}
+                </select>
+
+                <div className="flex bg-slate-200 rounded-lg p-1">
+                    <button 
+                        onClick={() => setWinrateTab('all')}
+                        className={`flex-1 sm:flex-none px-3 py-1.5 rounded-md text-[10px] sm:text-sm font-bold transition-all ${
+                            winrateTab === 'all' 
+                            ? 'bg-purple-600 text-white shadow-md' 
+                            : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                    >
+                        Tất Cả
+                    </button>
+                    <button 
+                        onClick={() => setWinrateTab('betting')}
+                        className={`flex-1 sm:flex-none px-3 py-1.5 rounded-md text-[10px] sm:text-sm font-bold transition-all ${
+                            winrateTab === 'betting' 
+                            ? 'bg-pickle-600 text-white shadow-md' 
+                            : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                    >
+                        Kèo
+                    </button>
+                    <button 
+                        onClick={() => setWinrateTab('tournament')}
+                        className={`flex-1 sm:flex-none px-3 py-1.5 rounded-md text-[10px] sm:text-sm font-bold transition-all ${
+                            winrateTab === 'tournament' 
+                            ? 'bg-blue-600 text-white shadow-md' 
+                            : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                    >
+                        Giải
+                    </button>
+                </div>
             </div>
          </div>
          
@@ -743,6 +1239,80 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({ matches, players
              <div className="mt-2 text-center text-[10px] text-slate-400 italic">
                 * Tỉ lệ % thắng của hàng (bên trái) khi đối đầu với cột (bên trên).
              </div>
+         </div>
+      </Card>
+
+      {/* 7. RATING EXCHANGE MATRIX (NEW) */}
+      <Card className="p-0 sm:p-6" classNameTitle="px-4 sm:px-6">
+         <div className="flex flex-col sm:flex-row items-center justify-between border-b border-slate-100 p-4 gap-4 bg-slate-50/50">
+            <h3 className="font-bold text-slate-800 flex items-center gap-2 text-sm sm:text-base">
+                <ArrowRightLeft className="w-5 h-5 text-blue-500" />
+                Ma Trận Điểm Rating (Được/Mất)
+            </h3>
+         </div>
+         <div className="w-full overflow-x-auto p-4">
+            <table className="min-w-full border-collapse table-fixed">
+                <thead>
+                    <tr>
+                        {/* Top Left Empty Cell */}
+                        <th className="sticky left-0 top-0 z-20 bg-slate-50 border-b border-r border-slate-200 p-1 w-[80px] md:w-[120px] text-left text-[10px] font-bold text-slate-400 uppercase align-bottom">
+                            <span className="block px-1">Gained</span>
+                        </th>
+                        
+                        {/* Top Header Row (Opponents) */}
+                        {matrixActivePlayers.map(colPlayer => (
+                            <th key={colPlayer.id} className="p-2 border-b border-slate-200 w-16 md:w-20 text-center text-[10px] font-bold text-slate-700 bg-slate-50 align-bottom">
+                                <span className="block truncate" title={colPlayer.name}>
+                                    {colPlayer.name}
+                                </span>
+                            </th>
+                        ))}
+                    </tr>
+                </thead>
+                <tbody>
+                    {matrixActivePlayers.map(rowPlayer => (
+                        <tr key={rowPlayer.id} className="hover:bg-slate-50 transition-colors h-10">
+                            {/* Left Sticky Column (Player) */}
+                            <th className="sticky left-0 z-10 p-1 border-r border-b border-slate-200 bg-slate-50 text-left text-[10px] md:text-xs font-bold text-slate-800 shadow-[1px_0_3px_rgba(0,0,0,0.05)] truncate">
+                                <span className="block px-1 truncate" title={rowPlayer.name}>{rowPlayer.name}</span>
+                            </th>
+                            
+                            {/* Data Cells */}
+                            {matrixActivePlayers.map(colPlayer => {
+                                if (rowPlayer.id === colPlayer.id) {
+                                    return <td key={colPlayer.id} className="bg-slate-100 border-b border-slate-200"></td>;
+                                }
+
+                                const exchange = ratingMatrixData.get(String(rowPlayer.id))?.get(String(colPlayer.id)) || 0;
+                                
+                                // Color logic
+                                let cellClass = 'text-slate-300';
+                                if (exchange > 0) cellClass = 'text-green-600 font-bold bg-green-50/50';
+                                if (exchange < 0) cellClass = 'text-red-500 font-bold bg-red-50/50';
+                                if (exchange === 0 && ratingMatrixData.get(String(rowPlayer.id))?.has(String(colPlayer.id))) cellClass = 'text-slate-400 font-medium';
+
+                                return (
+                                    <td 
+                                        key={colPlayer.id} 
+                                        className={`p-0 border-b border-slate-100 text-center border-r border-slate-50 last:border-r-0 ${cellClass}`}
+                                    >
+                                        <div className="flex items-center justify-center h-full text-[10px] md:text-xs">
+                                            {exchange !== 0 ? (
+                                                <span>{exchange > 0 ? '+' : ''}{exchange.toFixed(1)}</span>
+                                            ) : (
+                                                <span>-</span>
+                                            )}
+                                        </div>
+                                    </td>
+                                );
+                            })}
+                        </tr>
+                    ))}
+                </tbody>
+            </table>
+            <div className="mt-2 text-center text-[10px] text-slate-400 italic">
+                * Tổng điểm Rating mà hàng (bên trái) đã lấy được từ cột (bên trên). Màu xanh là dương, màu đỏ là âm.
+            </div>
          </div>
       </Card>
     </div>
