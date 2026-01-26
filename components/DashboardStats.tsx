@@ -62,8 +62,11 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({ matches, players
   const [handicapSortDir, setHandicapSortDir] = useState<SortDirection>('desc');
   const [handicapSortMetric, setHandicapSortMetric] = useState<SortMetric>('count'); // 'count' or 'rate'
 
-  // Matrix Filter State
+  // Matrix Filter State (H2H)
   const [matrixTimeFilter, setMatrixTimeFilter] = useState<'all' | 'month'>('all');
+
+  // Matrix Filter State (Rating Exchange)
+  const [ratingExchangeFilter, setRatingExchangeFilter] = useState<'all' | 'month'>('all');
   
   // Create a lookup map, ensuring keys are always Strings
   const playerLookup = useMemo(() => new Map(players.map(p => [String(p.id), p])), [players]);
@@ -453,7 +456,7 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({ matches, players
           // as long as it affected rating.
           // Check filter time for DISPLAY accumulation
           let shouldCount = true;
-          if (matrixTimeFilter === 'month' && !m.date.startsWith(currentMonthKey)) shouldCount = false;
+          if (ratingExchangeFilter === 'month' && !m.date.startsWith(currentMonthKey)) shouldCount = false;
 
           let s1 = Number(m.score1);
           let s2 = Number(m.score2);
@@ -510,7 +513,7 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({ matches, players
       });
 
       return matrix;
-  }, [matches, activePlayers, activePlayerIds, matrixTimeFilter, currentMonthKey]);
+  }, [matches, activePlayers, activePlayerIds, ratingExchangeFilter, currentMonthKey]);
 
   // --- BETTING POINTS TABLE DATA (Uses global stats - Current Month Only) ---
   const bettingPointsTableData = useMemo(() => {
@@ -960,11 +963,11 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({ matches, players
                         <th className="px-2 py-3 text-center w-24 border-r border-slate-100 bg-slate-50 text-slate-700">
                             {renderSortHeader('Tổng Trận', 'total', handicapSortKey, handicapSortDir)}
                         </th>
-                        <th className="px-2 py-3 text-center bg-blue-50/50 text-blue-700 border-r border-slate-100">
-                            {renderSortHeader('Kèo Cân', 'balanced', handicapSortKey, handicapSortDir)}
-                        </th>
                         <th className="px-2 py-3 text-center bg-red-50/50 text-red-700 border-r border-slate-100">
                             {renderSortHeader('Kèo Dưới', 'underdog', handicapSortKey, handicapSortDir)}
+                        </th>
+                        <th className="px-2 py-3 text-center bg-blue-50/50 text-blue-700 border-r border-slate-100">
+                            {renderSortHeader('Kèo Cân', 'balanced', handicapSortKey, handicapSortDir)}
                         </th>
                         <th className="px-2 py-3 text-center bg-green-50/50 text-green-700">
                             {renderSortHeader('Kèo Trên', 'favorite', handicapSortKey, handicapSortDir)}
@@ -1017,11 +1020,11 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({ matches, players
                                 <td className="px-2 py-3 text-center border-r border-slate-100 font-bold text-slate-700 text-sm">
                                     {totalMatches}
                                 </td>
-                                <td className="px-2 py-3 text-center border-r border-slate-50 bg-blue-50/10">
-                                    {renderCell(stat.balanced, 'blue', 'bg-blue-400')}
-                                </td>
                                 <td className="px-2 py-3 text-center border-r border-slate-50 bg-red-50/10">
                                     {renderCell(stat.underdog, 'red', 'bg-red-400')}
+                                </td>
+                                <td className="px-2 py-3 text-center border-r border-slate-50 bg-blue-50/10">
+                                    {renderCell(stat.balanced, 'blue', 'bg-blue-400')}
                                 </td>
                                 <td className="px-2 py-3 text-center bg-green-50/10">
                                     {renderCell(stat.favorite, 'green', 'bg-green-400')}
@@ -1249,6 +1252,28 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({ matches, players
                 <ArrowRightLeft className="w-5 h-5 text-blue-500" />
                 Ma Trận Điểm Rating (Được/Mất)
             </h3>
+            <div className="flex bg-slate-200 rounded-lg p-1 w-full sm:w-auto">
+                <button 
+                    onClick={() => setRatingExchangeFilter('all')}
+                    className={`flex-1 sm:flex-none px-3 py-1.5 rounded-md text-[10px] sm:text-sm font-bold transition-all ${
+                        ratingExchangeFilter === 'all' 
+                        ? 'bg-blue-600 text-white shadow-md' 
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                >
+                    Tất Cả
+                </button>
+                <button 
+                    onClick={() => setRatingExchangeFilter('month')}
+                    className={`flex-1 sm:flex-none px-3 py-1.5 rounded-md text-[10px] sm:text-sm font-bold transition-all ${
+                        ratingExchangeFilter === 'month' 
+                        ? 'bg-blue-600 text-white shadow-md' 
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                >
+                    Tháng Này
+                </button>
+            </div>
          </div>
          <div className="w-full overflow-x-auto p-4">
             <table className="min-w-full border-collapse table-fixed">
