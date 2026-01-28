@@ -3,6 +3,7 @@ import { Match, Player } from '../types';
 import { Card } from './Card';
 import { Trash2, Calendar, Filter, X, Banknote, Trophy, User, Info, AlertCircle, ArrowRight, Layers, Scale } from 'lucide-react';
 import { getMatchRatingDetails, RatingCalculationLog } from '../services/storageService';
+import { analyzeHistoryHandicaps } from '../services/autoMatchmaker';
 
 interface RecentMatchesProps {
   matches: Match[];
@@ -32,27 +33,15 @@ export const RecentMatches: React.FC<RecentMatchesProps> = ({ matches, players, 
     return ids.map(id => playerMap.get(String(id))?.name || 'Unknown').join(' & ');
   };
 
-  // Simplified Rating Getter for list display
-  const getPlayerRating = (id: string) => {
-      const p = playerMap.get(String(id));
-      return p ? (p.tournamentRating || p.initialPoints || 1000) : 1000;
-  };
-
-  const getTeamRating = (ids: string[]) => {
-      if (ids.length === 0) return 0;
-      const total = ids.reduce((sum, id) => sum + getPlayerRating(id), 0);
-      return total / ids.length;
-  };
+  // --- HISTORICAL HANDICAP CALCULATION (USING AI LOGIC) ---
+  // Replaces previous simplified logic with the robust one from autoMatchmaker
+  const matchHandicapHistory = useMemo(() => {
+      // Use shared function to ensure 100% sync with AI Matchmaker & Stats
+      return analyzeHistoryHandicaps(matches, players);
+  }, [matches, players]);
 
   const getMatchHandicapStatus = (m: Match) => {
-      const t1 = m.team1.map(String);
-      const t2 = m.team2.map(String);
-      const r1 = getTeamRating(t1);
-      const r2 = getTeamRating(t2);
-      const diff = r1 - r2;
-      
-      if (Math.abs(diff) <= 0.25) return 'balanced';
-      return diff > 0.25 ? 't1_favorite' : 't2_favorite'; // 'imbalanced'
+      return matchHandicapHistory.get(m.id) || 'balanced';
   };
 
   const formatDate = (isoString: string) => {
@@ -101,7 +90,7 @@ export const RecentMatches: React.FC<RecentMatchesProps> = ({ matches, players, 
     }
 
     return result.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  }, [matches, selectedDate, selectedPlayerId, activeTab, handicapFilter, playerMap]);
+  }, [matches, selectedDate, selectedPlayerId, activeTab, handicapFilter, playerMap, matchHandicapHistory]);
 
   const handleDelete = (e: React.MouseEvent, id: string) => {
     e.preventDefault();

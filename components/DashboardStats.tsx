@@ -4,6 +4,7 @@ import { Card } from './Card';
 import { Trophy, TrendingUp, Users, Banknote, Medal, Calendar, Grid3X3, Filter, Award, TrendingDown, Activity, Minus, Scale, ArrowUpCircle, ArrowDownCircle, ArrowRightLeft, ArrowUpDown, Percent, Hash } from 'lucide-react';
 import { HeadToHeadMatrix } from './HeadToHeadMatrix';
 import { getDailyRatingHistory } from '../services/storageService';
+import { analyzeHistoryHandicaps } from '../services/autoMatchmaker';
 
 interface DashboardStatsProps {
   matches: Match[];
@@ -270,13 +271,7 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({ matches, players
 
   // --- NEW: HANDICAP STATS CALCULATION (Independent Filter + Form Included) ---
   const handicapStatsData = useMemo(() => {
-      // 1. Simulation Setup
-      const currentRatings = new Map<string, number>();
-      activePlayers.forEach(p => currentRatings.set(String(p.id), p.initialPoints || 1000));
-
-      // History tracker for Form: ID -> array of boolean (last 5 results: win=true, loss=false)
-      const playerHistory = new Map<string, boolean[]>();
-
+      // 1. Setup Stats Map
       const statsMap = new Map<string, PlayerHandicapStats>();
       activePlayers.forEach(p => {
           statsMap.set(String(p.id), {
@@ -288,100 +283,53 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({ matches, players
           });
       });
 
-      // 2. Sort all matches chronologically
-      const allSortedMatches = [...matches].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+      // 2. Analyze all matches using shared AI Logic to get statuses
+      const matchStatuses = analyzeHistoryHandicaps(matches, players);
 
-      // Helper to calculate form
-      const getForm = (pid: string) => {
-          const hist = playerHistory.get(pid) || [];
-          if (hist.length === 0) return 0;
-          // Simple form: Win Rate of last 5 matches.
-          // 100% win = +0.25, 0% win = -0.25
-          const wins = hist.filter(Boolean).length;
-          const winRate = wins / hist.length;
-          return (winRate - 0.5) * 0.5; // Scale to +/- 0.25
-      };
-
-      // 3. Iterate
-      allSortedMatches.forEach(m => {
-          // EXCLUDE TOURNAMENT MATCHES FROM THIS STATS ENTIRELY
+      // 3. Iterate and Aggregate
+      matches.forEach(m => {
+          // EXCLUDE TOURNAMENT MATCHES FROM THIS STATS ENTIRELY (Consistent with older logic)
           if (m.type === 'tournament') return;
+
+          // Time filter
+          if (handicapTimeFilter !== 'all' && !m.date.startsWith(handicapTimeFilter)) return;
 
           let s1 = Number(m.score1);
           let s2 = Number(m.score2);
           if (isNaN(s1)) s1 = 0; if (isNaN(s2)) s2 = 0;
           if (s1 === s2) return; // Skip draws
 
+          const isTeam1Win = s1 > s2;
+          const status = matchStatuses.get(m.id) || 'balanced';
+
           const team1Ids = m.team1.map(String);
           const team2Ids = m.team2.map(String);
-          
-          // Current Ratings
-          const getR = (id: string) => currentRatings.get(id) || 1000;
-          
-          // Calculate Average Team Rating INCLUDING FORM
-          const t1Avg = team1Ids.reduce((sum, id) => sum + getR(id) + getForm(id), 0) / (team1Ids.length || 1);
-          const t2Avg = team2Ids.reduce((sum, id) => sum + getR(id) + getForm(id), 0) / (team2Ids.length || 1);
-          
-          const diff = t1Avg - t2Avg;
-          
-          const isTeam1Win = s1 > s2;
-          
-          // Check if match should be counted in Stats
-          let shouldCount = true;
-          if (handicapTimeFilter !== 'all' && !m.date.startsWith(handicapTimeFilter)) shouldCount = false;
 
-          // Update Stats
-          if (shouldCount) {
-              const processPlayer = (pid: string, isTeam1: boolean) => {
-                  if (!activePlayerIds.has(pid)) return;
-                  const pStats = statsMap.get(pid);
-                  if (!pStats) return;
+          const processPlayer = (pid: string, isTeam1: boolean) => {
+              if (!activePlayerIds.has(pid)) return;
+              const pStats = statsMap.get(pid);
+              if (!pStats) return;
 
-                  const isWin = isTeam1 ? isTeam1Win : !isTeam1Win;
-                  
-                  let category: 'balanced' | 'underdog' | 'favorite' = 'balanced';
-                  
-                  if (Math.abs(diff) <= 0.25) {
-                      category = 'balanced';
+              const isWin = isTeam1 ? isTeam1Win : !isTeam1Win;
+              
+              let category: 'balanced' | 'underdog' | 'favorite' = 'balanced';
+              
+              if (status === 'balanced') {
+                  category = 'balanced';
+              } else {
+                  if (isTeam1) {
+                      category = status === 't1_favorite' ? 'favorite' : 'underdog';
                   } else {
-                      if (isTeam1) {
-                          category = diff > 0.25 ? 'favorite' : 'underdog';
-                      } else {
-                          category = diff > 0.25 ? 'underdog' : 'favorite';
-                      }
+                      category = status === 't2_favorite' ? 'favorite' : 'underdog';
                   }
+              }
 
-                  pStats[category].total++;
-                  if (isWin) pStats[category].wins++;
-              };
-
-              team1Ids.forEach(pid => processPlayer(pid, true));
-              team2Ids.forEach(pid => processPlayer(pid, false));
-          }
-
-          // Update Ratings (Simplified ELO)
-          const isEligibleForRating = new Date(m.date) >= new Date('2025-12-01');
-          if (isEligibleForRating) {
-             const V2_K = 0.18;
-             const expectedA = 1 / (1 + Math.exp(-(diff) / 0.45)); // using diff with form here implies match prediction uses form, which is correct for ELO
-             const resultA = isTeam1Win ? 1 : 0;
-             const change = V2_K * (resultA - expectedA); 
-             
-             team1Ids.forEach(pid => currentRatings.set(pid, (currentRatings.get(pid)||1000) + change));
-             team2Ids.forEach(pid => currentRatings.set(pid, (currentRatings.get(pid)||1000) - change));
-          }
-
-          // Update History for Form
-          const updateHistory = (ids: string[], win: boolean) => {
-              ids.forEach(pid => {
-                  if (!playerHistory.has(pid)) playerHistory.set(pid, []);
-                  const h = playerHistory.get(pid)!;
-                  h.push(win);
-                  if (h.length > 5) h.shift(); // Keep last 5
-              });
+              pStats[category].total++;
+              if (isWin) pStats[category].wins++;
           };
-          updateHistory(team1Ids, isTeam1Win);
-          updateHistory(team2Ids, !isTeam1Win);
+
+          team1Ids.forEach(pid => processPlayer(pid, true));
+          team2Ids.forEach(pid => processPlayer(pid, false));
       });
 
       const filteredList = Array.from(statsMap.values())
@@ -397,16 +345,27 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({ matches, players
           if (handicapSortKey === 'name') {
               return handicapSortDir === 'asc' ? a.name.localeCompare(b.name) : b.name.localeCompare(a.name);
           } else if (handicapSortKey === 'total') {
-              valA = a.balanced.total + a.underdog.total + a.favorite.total;
-              valB = b.balanced.total + b.underdog.total + b.favorite.total;
+              // Special logic for Total column based on metric
+              const totalA = a.balanced.total + a.underdog.total + a.favorite.total;
+              const totalB = b.balanced.total + b.underdog.total + b.favorite.total;
+              
+              if (handicapSortMetric === 'count') {
+                  valA = totalA;
+                  valB = totalB;
+              } else {
+                  // Rate for total doesn't make much sense but calculating aggregate win rate
+                  const winsA = a.balanced.wins + a.underdog.wins + a.favorite.wins;
+                  const winsB = b.balanced.wins + b.underdog.wins + b.favorite.wins;
+                  valA = getRate(winsA, totalA);
+                  valB = getRate(winsB, totalB);
+              }
           } else {
-              // Sorting by specific category columns (Balanced, Underdog, Favorite)
-              // Depends on metric: count vs rate
+              // Sorting by specific category columns
               const catA = a[handicapSortKey];
               const catB = b[handicapSortKey];
               
               if (handicapSortMetric === 'count') {
-                  valA = catA.total;
+                  valA = catA.total; // Sort by Number of matches in that category
                   valB = catB.total;
               } else {
                   valA = getRate(catA.wins, catA.total);
@@ -422,7 +381,7 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({ matches, players
 
       return sortedList;
 
-  }, [matches, activePlayers, activePlayerIds, handicapTimeFilter, handicapSortKey, handicapSortDir, handicapSortMetric]);
+  }, [matches, activePlayers, activePlayerIds, handicapTimeFilter, handicapSortKey, handicapSortDir, handicapSortMetric, players]);
 
   // --- NEW: HANDICAP SORT HANDLER ---
   const handleHandicapSort = (key: SortKey) => {
@@ -977,6 +936,7 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({ matches, players
                 <tbody className="divide-y divide-slate-100">
                     {handicapStatsData.map((stat, idx) => {
                         const totalMatches = stat.balanced.total + stat.underdog.total + stat.favorite.total;
+                        const isCountMetric = handicapSortMetric === 'count';
                         
                         const renderCell = (data: HandicapCategoryStats, colorClass: string, barColor: string) => {
                             if (data.total === 0) return <span className="text-slate-300">-</span>;
@@ -985,20 +945,21 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({ matches, players
 
                             return (
                                 <div className="flex flex-col items-center justify-center gap-0.5 w-full">
-                                    <span className={`font-black text-sm ${rate >= 50 ? 'text-green-600' : 'text-red-500'}`}>
-                                        {rate}%
-                                    </span>
-                                    <div className="flex items-center gap-1 mt-0.5">
-                                        <span className="text-[11px] text-slate-800 font-bold">
-                                            {data.total}
-                                        </span>
-                                        <span className="text-[9px] text-slate-400 font-medium">
-                                            ({share}%)
-                                        </span>
-                                    </div>
-                                    <div className="text-[10px] text-slate-400 font-medium hidden">
-                                        ({data.wins} thắng)
-                                    </div>
+                                    {/* Winrate Always Top, Count Bottom */}
+                                    {isCountMetric ? (
+                                        <>
+                                            {/* Winrate Small, Count Big (since sorting by count) */}
+                                            <span className={`text-[10px] font-bold ${rate >= 50 ? 'text-green-600' : 'text-red-500'}`}>{rate}%</span>
+                                            <span className="font-black text-sm text-slate-800">{data.total}</span>
+                                        </>
+                                    ) : (
+                                        <>
+                                            {/* Winrate Big, Count Small (since sorting by rate) */}
+                                            <span className={`font-black text-sm ${rate >= 50 ? 'text-green-600' : 'text-red-500'}`}>{rate}%</span>
+                                            <span className="text-[10px] text-slate-800 font-bold">{data.total}</span>
+                                        </>
+                                    )}
+                                    <span className="text-[9px] text-slate-400 font-medium">({share}%)</span>
                                     {/* Share Bar */}
                                     <div className="w-16 h-1 bg-slate-200 rounded-full mt-1 overflow-hidden">
                                         <div className={`h-full ${barColor}`} style={{ width: `${share}%` }}></div>
@@ -1039,23 +1000,23 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({ matches, players
             </table>
          </div>
          <div className="p-3 bg-slate-50 border-t border-slate-100 text-[10px] text-slate-500">
-            <div className="font-bold mb-1 uppercase tracking-wider text-slate-400">Định nghĩa (Theo chênh lệch Rating Thực Tế = Gốc + Form):</div>
+            <div className="font-bold mb-1 uppercase tracking-wider text-slate-400">Định nghĩa (AI Matchmaker Core):</div>
             <div className="flex flex-wrap gap-x-4 gap-y-1">
                 <div className="flex items-center gap-1.5">
                     <div className="w-2 h-2 rounded-full bg-blue-500"></div>
-                    <span><b>Kèo Cân:</b> Chênh lệch ≤ 0.25</span>
+                    <span><b>Kèo Cân:</b> Chênh lệch ≤ 0.25 (Rating Gốc + Phong Độ)</span>
                 </div>
                 <div className="flex items-center gap-1.5">
                     <div className="w-2 h-2 rounded-full bg-green-500"></div>
-                    <span><b>Kèo Trên:</b> Rating cao hơn &gt; 0.25</span>
+                    <span><b>Kèo Trên:</b> Rating thực tế cao hơn &gt; 0.25</span>
                 </div>
                 <div className="flex items-center gap-1.5">
                     <div className="w-2 h-2 rounded-full bg-red-500"></div>
-                    <span><b>Kèo Dưới:</b> Rating thấp hơn &gt; 0.25</span>
+                    <span><b>Kèo Dưới:</b> Rating thực tế thấp hơn &gt; 0.25</span>
                 </div>
             </div>
             <div className="mt-1 text-[9px] text-slate-400 italic">
-                * Form (Phong độ) = (Tỉ lệ thắng 5 trận gần nhất - 50%) * 0.5 (Tối đa +/- 0.25 điểm).
+                * Dữ liệu thống kê sử dụng thuật toán AI (Bao gồm Base Rating + Win/Loss + Margin + Upset Factors) để tái hiện lịch sử.
             </div>
          </div>
       </Card>
