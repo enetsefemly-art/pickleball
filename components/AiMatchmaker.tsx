@@ -1,8 +1,8 @@
 import React, { useState, useMemo } from 'react';
 import { Player, Match } from '../types';
 import { Card } from './Card';
-import { findTopMatchupsForTeam, GeneratedMatch } from '../services/autoMatchmaker';
-import { Zap, Shield, Target, CheckCircle2, AlertCircle, Sparkles, TrendingUp, Users, Scale, Info, BrainCircuit, History, Swords } from 'lucide-react';
+import { findTopMatchupsForTeam, findBestPartners, GeneratedMatch } from '../services/autoMatchmaker';
+import { Zap, Shield, Target, CheckCircle2, AlertCircle, Sparkles, TrendingUp, Users, Scale, Info, BrainCircuit, History, Swords, UserPlus, User } from 'lucide-react';
 
 interface AiMatchmakerProps {
   players: Player[];
@@ -10,10 +10,18 @@ interface AiMatchmakerProps {
 }
 
 export const AiMatchmaker: React.FC<AiMatchmakerProps> = ({ players, matches }) => {
-  // Team Home Selection
+  // --- MODE STATE ---
+  const [mode, setMode] = useState<'find_opponent' | 'find_partner'>('find_opponent');
+
+  // --- FIND OPPONENT STATE (EXISTING) ---
   const [p1Id, setP1Id] = useState<string>('');
   const [p2Id, setP2Id] = useState<string>('');
   
+  // --- FIND PARTNER STATE (NEW) ---
+  const [myId, setMyId] = useState<string>('');
+  const [targetOpponentIds, setTargetOpponentIds] = useState<string[]>(['', '']); // Max 2 slots
+
+  // --- RESULTS STATE ---
   const [results, setResults] = useState<GeneratedMatch[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isSearching, setIsSearching] = useState(false);
@@ -24,7 +32,7 @@ export const AiMatchmaker: React.FC<AiMatchmakerProps> = ({ players, matches }) 
   // Sorting for display
   const sortedPlayers = useMemo(() => [...activePlayers].sort((a, b) => a.name.localeCompare(b.name)), [activePlayers]);
 
-  const handleRun = () => {
+  const handleRunFindOpponent = () => {
       setError(null);
       setResults([]);
       
@@ -39,11 +47,8 @@ export const AiMatchmaker: React.FC<AiMatchmakerProps> = ({ players, matches }) 
 
       setIsSearching(true);
 
-      // Simulate a small delay for better UX feeling of "AI Processing"
       setTimeout(() => {
         try {
-            // Updated Logic: Remove month filtering. Use ALL players who are active.
-            // Pool is all active players excluding home team.
             const poolIds = activePlayers
                 .filter(p => {
                     const pid = String(p.id);
@@ -57,7 +62,6 @@ export const AiMatchmaker: React.FC<AiMatchmakerProps> = ({ players, matches }) 
                 return;
             }
 
-            // Use allMatches for learning history
             const topMatches = findTopMatchupsForTeam([p1Id, p2Id], poolIds, players, matches);
             setResults(topMatches);
             
@@ -72,11 +76,69 @@ export const AiMatchmaker: React.FC<AiMatchmakerProps> = ({ players, matches }) 
       }, 600);
   };
 
+  const handleRunFindPartner = () => {
+      setError(null);
+      setResults([]);
+
+      if (!myId) {
+          setError("Vui lòng chọn tên của bạn.");
+          return;
+      }
+
+      const validOpponents = targetOpponentIds.filter(id => id !== '');
+      if (validOpponents.length === 0) {
+          setError("Vui lòng chọn ít nhất 1 đối thủ dự kiến.");
+          return;
+      }
+
+      // Unique Check
+      const allSelected = [myId, ...validOpponents];
+      if (new Set(allSelected).size !== allSelected.length) {
+          setError("Người chơi không được trùng lặp.");
+          return;
+      }
+
+      setIsSearching(true);
+
+      setTimeout(() => {
+          try {
+              const poolIds = activePlayers
+                  .filter(p => {
+                      const pid = String(p.id);
+                      return pid !== myId && !validOpponents.includes(pid);
+                  })
+                  .map(p => String(p.id));
+              
+              // Need at least 1 person in pool if 1vs2 (to fill my partner)
+              // Need at least 2 people in pool if 1vs1 (to fill my partner AND opponent partner)
+              const requiredPoolSize = validOpponents.length === 1 ? 2 : 1;
+
+              if (poolIds.length < requiredPoolSize) {
+                  setError(`Không đủ người chơi active để ghép (Cần thêm ít nhất ${requiredPoolSize} người).`);
+                  setIsSearching(false);
+                  return;
+              }
+
+              const bestMatches = findBestPartners(myId, validOpponents, poolIds, players, matches);
+              setResults(bestMatches);
+
+              if (bestMatches.length === 0) {
+                  setError("Không tìm thấy phương án ghép cặp phù hợp.");
+              }
+
+          } catch (e: any) {
+              setError("Lỗi thuật toán: " + e.message);
+          } finally {
+              setIsSearching(false);
+          }
+      }, 600);
+  };
+
   const getPlayerName = (id: string) => players.find(p => String(p.id) === id)?.name || 'Unknown';
 
-  // --- NEW LOGIC: PAIR HISTORY ANALYSIS ---
+  // --- NEW LOGIC: PAIR HISTORY ANALYSIS (Only for Find Opponent mode) ---
   const pairHistory = useMemo(() => {
-      if (!p1Id || !p2Id || p1Id === p2Id) return [];
+      if (mode !== 'find_opponent' || !p1Id || !p2Id || p1Id === p2Id) return [];
 
       const historyMap = new Map<string, {
           opponents: string[],
@@ -87,17 +149,14 @@ export const AiMatchmaker: React.FC<AiMatchmakerProps> = ({ players, matches }) 
       }>();
 
       matches.forEach(m => {
-          // Check if p1 and p2 are teammates
           const t1 = m.team1.map(String);
           const t2 = m.team2.map(String);
 
           const isHomeInT1 = t1.includes(p1Id) && t1.includes(p2Id);
           const isHomeInT2 = t2.includes(p1Id) && t2.includes(p2Id);
 
-          // Must be playing together in this match
           if (!isHomeInT1 && !isHomeInT2) return;
 
-          // Identify Opponents (Must be exactly 2 opponents for doubles context)
           const opponentIds = isHomeInT1 ? t2 : t1;
           if (opponentIds.length !== 2) return; 
 
@@ -117,14 +176,12 @@ export const AiMatchmaker: React.FC<AiMatchmakerProps> = ({ players, matches }) 
           stats.total++;
           if (new Date(m.date) > new Date(stats.lastDate)) stats.lastDate = m.date;
 
-          // Determine Winner
           let s1 = Number(m.score1);
           let s2 = Number(m.score2);
           if (isNaN(s1)) s1 = 0; if (isNaN(s2)) s2 = 0;
-          if (s1 === s2) return; // Skip draws
+          if (s1 === s2) return; 
 
           let winner = s1 > s2 ? 1 : 2;
-          // Fallback to explicit winner field if scores are missing/equal but winner exists
           if (s1 === 0 && s2 === 0 && m.winner) winner = Number(m.winner) === 1 ? 1 : 2;
 
           const homeWon = (isHomeInT1 && winner === 1) || (isHomeInT2 && winner === 2);
@@ -132,18 +189,19 @@ export const AiMatchmaker: React.FC<AiMatchmakerProps> = ({ players, matches }) 
           else stats.losses++;
       });
 
-      // Convert to array and sort by Win Rate (Desc) then Total Matches (Desc)
       return Array.from(historyMap.values()).sort((a, b) => {
           const wrA = a.total > 0 ? a.wins / a.total : 0;
           const wrB = b.total > 0 ? b.wins / b.total : 0;
-          
-          // Higher win rate first
           if (wrB !== wrA) return wrB - wrA;
-          
-          // If win rate is same, prioritize more matches played
           return b.total - a.total;
       });
-  }, [p1Id, p2Id, matches]);
+  }, [mode, p1Id, p2Id, matches]);
+
+  const updateTargetOpponent = (index: number, val: string) => {
+      const newIds = [...targetOpponentIds];
+      newIds[index] = val;
+      setTargetOpponentIds(newIds);
+  };
 
   return (
     <div className="space-y-6">
@@ -160,91 +218,195 @@ export const AiMatchmaker: React.FC<AiMatchmakerProps> = ({ players, matches }) 
             </div>
         </div>
 
+        {/* TABS */}
+        <div className="flex bg-white rounded-xl shadow-sm border border-slate-200 p-1">
+            <button
+                onClick={() => { setMode('find_opponent'); setResults([]); setError(null); }}
+                className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-lg font-bold text-sm transition-all ${
+                    mode === 'find_opponent' 
+                    ? 'bg-violet-600 text-white shadow-md' 
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                }`}
+            >
+                <Swords className="w-4 h-4" /> Tìm Đối Thủ
+            </button>
+            <button
+                onClick={() => { setMode('find_partner'); setResults([]); setError(null); }}
+                className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-lg font-bold text-sm transition-all ${
+                    mode === 'find_partner' 
+                    ? 'bg-indigo-600 text-white shadow-md' 
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                }`}
+            >
+                <UserPlus className="w-4 h-4" /> Tìm Cạ Cứng
+            </button>
+        </div>
+
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
             
             {/* LEFT: Configuration */}
             <div className="lg:col-span-4 space-y-6">
                 
-                <Card title="Thiết Lập Đội Chủ Nhà" classNameTitle="bg-violet-50 text-violet-800 font-bold uppercase text-xs tracking-wider">
-                    <div className="flex flex-col gap-6">
-                        {/* Avatar / Placeholder Visual */}
-                        <div className="flex justify-center -space-x-4 py-2">
-                             <div className={`w-16 h-16 rounded-full border-4 border-white shadow-lg flex items-center justify-center font-bold text-xl ${p1Id ? 'bg-violet-500 text-white' : 'bg-slate-200 text-slate-400'}`}>
-                                 {p1Id ? getPlayerName(p1Id).charAt(0) : '?'}
-                             </div>
-                             <div className={`w-16 h-16 rounded-full border-4 border-white shadow-lg flex items-center justify-center font-bold text-xl ${p2Id ? 'bg-indigo-500 text-white' : 'bg-slate-200 text-slate-400'}`}>
-                                 {p2Id ? getPlayerName(p2Id).charAt(0) : '?'}
-                             </div>
-                        </div>
-
-                        <div className="space-y-3">
-                            <div>
-                                <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Thành viên 1</label>
-                                <select 
-                                    value={p1Id}
-                                    onChange={(e) => setP1Id(e.target.value)}
-                                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-800 focus:ring-2 focus:ring-violet-500 focus:border-violet-500 outline-none transition-all"
-                                >
-                                    <option value="">-- Chọn người chơi --</option>
-                                    {sortedPlayers.filter(p => String(p.id) !== p2Id).map(p => (
-                                        <option key={p.id} value={String(p.id)}>{p.name} (Rate: {(p.tournamentRating || p.initialPoints || 0).toFixed(1)})</option>
-                                    ))}
-                                </select>
-                            </div>
-                            
-                            <div className="relative">
-                                <div className="absolute inset-0 flex items-center" aria-hidden="true">
-                                    <div className="w-full border-t border-slate-200"></div>
+                {mode === 'find_opponent' ? (
+                    <Card title="Thiết Lập Đội Chủ Nhà" classNameTitle="bg-violet-50 text-violet-800 font-bold uppercase text-xs tracking-wider">
+                        <div className="flex flex-col gap-6">
+                            {/* Avatar / Placeholder Visual */}
+                            <div className="flex justify-center -space-x-4 py-2">
+                                <div className={`w-16 h-16 rounded-full border-4 border-white shadow-lg flex items-center justify-center font-bold text-xl ${p1Id ? 'bg-violet-500 text-white' : 'bg-slate-200 text-slate-400'}`}>
+                                    {p1Id ? getPlayerName(p1Id).charAt(0) : '?'}
                                 </div>
-                                <div className="relative flex justify-center">
-                                    <span className="bg-white px-2 text-slate-300 text-xs font-bold">&</span>
+                                <div className={`w-16 h-16 rounded-full border-4 border-white shadow-lg flex items-center justify-center font-bold text-xl ${p2Id ? 'bg-indigo-500 text-white' : 'bg-slate-200 text-slate-400'}`}>
+                                    {p2Id ? getPlayerName(p2Id).charAt(0) : '?'}
                                 </div>
                             </div>
 
-                            <div>
-                                <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Thành viên 2</label>
-                                <select 
-                                    value={p2Id}
-                                    onChange={(e) => setP2Id(e.target.value)}
-                                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-800 focus:ring-2 focus:ring-violet-500 focus:border-violet-500 outline-none transition-all"
-                                >
-                                    <option value="">-- Chọn người chơi --</option>
-                                    {sortedPlayers.filter(p => String(p.id) !== p1Id).map(p => (
-                                        <option key={p.id} value={String(p.id)}>{p.name} (Rate: {(p.tournamentRating || p.initialPoints || 0).toFixed(1)})</option>
-                                    ))}
-                                </select>
-                            </div>
-                        </div>
+                            <div className="space-y-3">
+                                <div>
+                                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Thành viên 1</label>
+                                    <select 
+                                        value={p1Id}
+                                        onChange={(e) => setP1Id(e.target.value)}
+                                        className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-800 focus:ring-2 focus:ring-violet-500 focus:border-violet-500 outline-none transition-all"
+                                    >
+                                        <option value="">-- Chọn người chơi --</option>
+                                        {sortedPlayers.filter(p => String(p.id) !== p2Id).map(p => (
+                                            <option key={p.id} value={String(p.id)}>{p.name} (Rate: {(p.tournamentRating || p.initialPoints || 0).toFixed(1)})</option>
+                                        ))}
+                                    </select>
+                                </div>
+                                
+                                <div className="relative">
+                                    <div className="absolute inset-0 flex items-center" aria-hidden="true">
+                                        <div className="w-full border-t border-slate-200"></div>
+                                    </div>
+                                    <div className="relative flex justify-center">
+                                        <span className="bg-white px-2 text-slate-300 text-xs font-bold">&</span>
+                                    </div>
+                                </div>
 
-                        {error && (
-                            <div className="flex items-start gap-2 text-red-600 bg-red-50 p-3 rounded-lg text-xs font-bold animate-pulse">
-                                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" /> 
-                                <span>{error}</span>
+                                <div>
+                                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Thành viên 2</label>
+                                    <select 
+                                        value={p2Id}
+                                        onChange={(e) => setP2Id(e.target.value)}
+                                        className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-800 focus:ring-2 focus:ring-violet-500 focus:border-violet-500 outline-none transition-all"
+                                    >
+                                        <option value="">-- Chọn người chơi --</option>
+                                        {sortedPlayers.filter(p => String(p.id) !== p1Id).map(p => (
+                                            <option key={p.id} value={String(p.id)}>{p.name} (Rate: {(p.tournamentRating || p.initialPoints || 0).toFixed(1)})</option>
+                                        ))}
+                                    </select>
+                                </div>
                             </div>
-                        )}
 
-                        <button 
-                            onClick={handleRun}
-                            disabled={isSearching}
-                            className="w-full py-4 bg-slate-900 hover:bg-slate-800 text-white font-black rounded-xl shadow-lg shadow-slate-300 active:scale-[0.98] transition-all flex items-center justify-center gap-2 text-base disabled:opacity-70 disabled:cursor-not-allowed group"
-                        >
-                            {isSearching ? (
-                                <>Processing...</>
-                            ) : (
-                                <>
-                                    <Target className="w-5 h-5 group-hover:text-yellow-400 transition-colors" /> TÌM ĐỐI THỦ NGAY
-                                </>
+                            {error && (
+                                <div className="flex items-start gap-2 text-red-600 bg-red-50 p-3 rounded-lg text-xs font-bold animate-pulse">
+                                    <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" /> 
+                                    <span>{error}</span>
+                                </div>
                             )}
-                        </button>
-                        
-                        <p className="text-[10px] text-center text-slate-400 italic">
-                             Sử dụng toàn bộ dữ liệu lịch sử để phân tích phong độ và tìm đối thủ cân sức nhất.
-                        </p>
-                    </div>
-                </Card>
 
-                {/* PAIR HISTORY (NEW FEATURE) */}
-                {pairHistory.length > 0 && (
+                            <button 
+                                onClick={handleRunFindOpponent}
+                                disabled={isSearching}
+                                className="w-full py-4 bg-slate-900 hover:bg-slate-800 text-white font-black rounded-xl shadow-lg shadow-slate-300 active:scale-[0.98] transition-all flex items-center justify-center gap-2 text-base disabled:opacity-70 disabled:cursor-not-allowed group"
+                            >
+                                {isSearching ? (
+                                    <>Processing...</>
+                                ) : (
+                                    <>
+                                        <Target className="w-5 h-5 group-hover:text-yellow-400 transition-colors" /> TÌM ĐỐI THỦ NGAY
+                                    </>
+                                )}
+                            </button>
+                        </div>
+                    </Card>
+                ) : (
+                    <Card title="Tìm Người Đánh Cặp" classNameTitle="bg-indigo-50 text-indigo-800 font-bold uppercase text-xs tracking-wider">
+                        <div className="flex flex-col gap-6">
+                            <div className="space-y-3">
+                                <div>
+                                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Bạn là ai?</label>
+                                    <select 
+                                        value={myId}
+                                        onChange={(e) => setMyId(e.target.value)}
+                                        className="w-full p-3 bg-white border border-indigo-200 rounded-xl font-bold text-slate-800 focus:ring-2 focus:ring-indigo-500 outline-none transition-all shadow-sm"
+                                    >
+                                        <option value="">-- Chọn tên bạn --</option>
+                                        {sortedPlayers.map(p => (
+                                            <option key={p.id} value={String(p.id)}>{p.name}</option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                <div className="relative my-4">
+                                    <div className="absolute inset-0 flex items-center" aria-hidden="true">
+                                        <div className="w-full border-t border-slate-200"></div>
+                                    </div>
+                                    <div className="relative flex justify-center">
+                                        <span className="bg-white px-2 text-slate-400 text-xs font-bold uppercase">Muốn đấu với</span>
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Đối thủ 1 (Bắt buộc)</label>
+                                    <select 
+                                        value={targetOpponentIds[0]}
+                                        onChange={(e) => updateTargetOpponent(0, e.target.value)}
+                                        className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-800 focus:ring-2 focus:ring-red-500 outline-none transition-all"
+                                    >
+                                        <option value="">-- Chọn đối thủ --</option>
+                                        {sortedPlayers.filter(p => String(p.id) !== myId && String(p.id) !== targetOpponentIds[1]).map(p => (
+                                            <option key={p.id} value={String(p.id)}>{p.name}</option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                <div>
+                                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Đối thủ 2 (Tuỳ chọn)</label>
+                                    <select 
+                                        value={targetOpponentIds[1]}
+                                        onChange={(e) => updateTargetOpponent(1, e.target.value)}
+                                        className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-800 focus:ring-2 focus:ring-red-500 outline-none transition-all"
+                                    >
+                                        <option value="">-- Để trống nếu muốn tìm 2 người --</option>
+                                        {sortedPlayers.filter(p => String(p.id) !== myId && String(p.id) !== targetOpponentIds[0]).map(p => (
+                                            <option key={p.id} value={String(p.id)}>{p.name}</option>
+                                        ))}
+                                    </select>
+                                    <p className="text-[10px] text-slate-400 mt-1 italic">
+                                        * Nếu chọn 1 đối thủ, AI sẽ tìm người cặp với bạn VÀ người cặp với đối thủ. <br/>
+                                        * Nếu chọn 2 đối thủ, AI sẽ chỉ tìm người cặp với bạn.
+                                    </p>
+                                </div>
+                            </div>
+
+                            {error && (
+                                <div className="flex items-start gap-2 text-red-600 bg-red-50 p-3 rounded-lg text-xs font-bold animate-pulse">
+                                    <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" /> 
+                                    <span>{error}</span>
+                                </div>
+                            )}
+
+                            <button 
+                                onClick={handleRunFindPartner}
+                                disabled={isSearching}
+                                className="w-full py-4 bg-indigo-600 hover:bg-indigo-700 text-white font-black rounded-xl shadow-lg shadow-indigo-200 active:scale-[0.98] transition-all flex items-center justify-center gap-2 text-base disabled:opacity-70 disabled:cursor-not-allowed group"
+                            >
+                                {isSearching ? (
+                                    <>Processing...</>
+                                ) : (
+                                    <>
+                                        <Users className="w-5 h-5" /> TÌM CẠ CỨNG
+                                    </>
+                                )}
+                            </button>
+                        </div>
+                    </Card>
+                )}
+
+                {/* PAIR HISTORY (Only show in Find Opponent Mode) */}
+                {mode === 'find_opponent' && pairHistory.length > 0 && (
                     <Card title="Lịch Sử Cặp Này" classNameTitle="bg-slate-100 text-slate-700 font-bold uppercase text-xs tracking-wider flex items-center gap-2">
                         <div className="overflow-x-auto max-h-[300px] custom-scrollbar">
                             <table className="w-full text-xs text-left">
@@ -290,11 +452,11 @@ export const AiMatchmaker: React.FC<AiMatchmakerProps> = ({ players, matches }) 
 
             {/* RIGHT: Results */}
             <div className="lg:col-span-8">
-                <Card className="h-full min-h-[500px]" title="Kết Quả Phân Tích (Top 10)" classNameTitle="bg-green-50 text-green-800 font-bold uppercase text-xs tracking-wider">
+                <Card className="h-full min-h-[500px]" title="Kết Quả Phân Tích (Top 10)" classNameTitle={`${mode === 'find_opponent' ? 'bg-green-50 text-green-800' : 'bg-blue-50 text-blue-800'} font-bold uppercase text-xs tracking-wider`}>
                     {results.length > 0 ? (
                         <div className="space-y-4 animate-fade-in">
-                            {/* HOME TEAM SUMMARY (If searching) */}
-                            {results.length > 0 && results[0].team1 && (
+                            {/* HOME TEAM SUMMARY (Only for Find Opponent) */}
+                            {mode === 'find_opponent' && results.length > 0 && results[0].team1 && (
                                 <div className="bg-violet-50 p-3 rounded-lg border border-violet-100 flex items-center justify-between mb-4">
                                     <div className="flex items-center gap-2">
                                         <div className="w-8 h-8 rounded-full bg-violet-200 text-violet-700 flex items-center justify-center font-bold text-xs">Home</div>
@@ -318,18 +480,14 @@ export const AiMatchmaker: React.FC<AiMatchmakerProps> = ({ players, matches }) 
                             )}
 
                             {results.map((match, idx) => {
-                                const opponentPair = match.team2;
-                                // AI Match Difference
-                                const aiDiff = Math.abs(match.team1.strength - match.team2.strength).toFixed(2);
+                                // For "Find Partner", Team1 is [Me, Partner]. Team2 is [Opp1, Opp2].
+                                // We want to highlight Team1 Partner and potentially Team2 Partner if we generated it.
                                 
-                                // Base Rating Stats
                                 const team1Base = match.team1.player1.baseRating + match.team1.player2.baseRating;
                                 const team2Base = match.team2.player1.baseRating + match.team2.player2.baseRating;
                                 const baseDiff = Math.abs(team1Base - team2Base).toFixed(1);
+                                const aiDiff = Math.abs(match.team1.strength - match.team2.strength).toFixed(2);
 
-                                // Form Stats
-                                const team2Form = match.team2.player1.form + match.team2.player2.form;
-                                
                                 return (
                                     <div key={idx} className="bg-white border border-slate-200 rounded-xl shadow-sm hover:shadow-md hover:border-green-300 transition-all overflow-hidden relative group">
                                         {/* Rank Badge */}
@@ -337,59 +495,53 @@ export const AiMatchmaker: React.FC<AiMatchmakerProps> = ({ players, matches }) 
                                             #{idx + 1} {idx === 0 && '👑'}
                                         </div>
 
+                                        {mode === 'find_partner' && (
+                                            <div className="absolute top-0 right-0 bg-indigo-100 text-indigo-700 text-[10px] font-bold px-2 py-1 rounded-bl-lg z-10">
+                                                Cặp Đôi Đề Xuất
+                                            </div>
+                                        )}
+
                                         <div className="flex flex-col md:flex-row">
-                                            {/* Opponent Info */}
+                                            {/* Info Section */}
                                             <div className="flex-1 p-4 pl-6 flex flex-col justify-center">
-                                                <div className="flex items-center justify-between mb-3">
-                                                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider ml-6 md:ml-0">Đối Thủ Đề Xuất</span>
-                                                    <div className="flex items-center gap-2">
-                                                        {match.analysis.team2Form > 0.1 ? (
-                                                            <div className="flex items-center gap-1 bg-red-100 px-2 py-0.5 rounded border border-red-200" title="Phong độ cao">
-                                                                <TrendingUp className="w-3 h-3 text-red-600" />
-                                                                <span className="text-red-700 text-[10px] font-bold">Hot Form</span>
-                                                            </div>
-                                                        ) : match.analysis.team2Form < -0.1 ? (
-                                                            <div className="flex items-center gap-1 bg-slate-100 px-2 py-0.5 rounded border border-slate-200" title="Phong độ thấp">
-                                                                <TrendingUp className="w-3 h-3 text-slate-500 rotate-180" />
-                                                                <span className="text-slate-600 text-[10px] font-bold">Cold Form</span>
-                                                            </div>
-                                                        ) : null}
-                                                        
-                                                        {match.analysis.team2Synergy > 0.05 && (
-                                                            <div className="flex items-center gap-1 bg-purple-100 px-2 py-0.5 rounded border border-purple-200" title="Cặp đôi ăn ý">
-                                                                <Users className="w-3 h-3 text-purple-600" />
-                                                                <span className="text-purple-700 text-[10px] font-bold">Hợp Cạ</span>
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                </div>
                                                 
                                                 <div className="flex items-center gap-4">
-                                                    <div className="flex -space-x-3 shrink-0">
-                                                        <div className="w-12 h-12 rounded-full bg-slate-100 border-2 border-white flex items-center justify-center font-bold text-slate-600 text-lg shadow-sm">
-                                                            {opponentPair.player1.id.slice(0,1)}
+                                                    {/* TEAM 1 (Me + Partner) */}
+                                                    <div className="flex-1 text-right">
+                                                        <div className="text-[10px] font-bold text-slate-400 uppercase mb-1">
+                                                            {mode === 'find_partner' ? 'Bạn & Đồng Đội' : 'Đội Chủ Nhà'}
                                                         </div>
-                                                        <div className="w-12 h-12 rounded-full bg-slate-200 border-2 border-white flex items-center justify-center font-bold text-slate-600 text-lg shadow-sm">
-                                                            {opponentPair.player2.id.slice(0,1)}
+                                                        <div className="font-bold text-slate-900 text-sm leading-tight">
+                                                            {getPlayerName(match.team1.player1.id)} 
+                                                            <br/>
+                                                            <span className="text-indigo-600 font-black">+ {getPlayerName(match.team1.player2.id)}</span>
+                                                        </div>
+                                                        <div className="text-[10px] text-slate-500 font-mono mt-1">
+                                                            Rating: {match.team1.strength.toFixed(2)}
                                                         </div>
                                                     </div>
-                                                    <div className="flex-1">
-                                                        <div className="font-bold text-slate-900 text-lg leading-tight">
-                                                            {getPlayerName(opponentPair.player1.id)} <span className="text-slate-300 font-normal">&</span> {getPlayerName(opponentPair.player2.id)}
+
+                                                    {/* VS */}
+                                                    <div className="flex flex-col items-center">
+                                                        <div className="w-8 h-8 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center font-black text-slate-400 text-xs">VS</div>
+                                                    </div>
+
+                                                    {/* TEAM 2 (Opponents) */}
+                                                    <div className="flex-1 text-left">
+                                                        <div className="text-[10px] font-bold text-slate-400 uppercase mb-1">
+                                                            Đối Thủ
                                                         </div>
-                                                        
-                                                        {/* DETAILED STATS ROW */}
-                                                        <div className="flex flex-wrap items-center gap-3 mt-1.5">
-                                                            <div className="flex items-center gap-1 text-[10px] text-slate-500 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-100" title="Tổng Rating Cứng (Trên giấy tờ)">
-                                                                <span className="font-bold">Gốc:</span> {team2Base.toFixed(1)}
-                                                            </div>
-                                                            <div className={`flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border ${team2Form >= 0 ? 'bg-green-50 text-green-700 border-green-100' : 'bg-red-50 text-red-700 border-red-100'}`} title="Điểm cộng/trừ phong độ gần đây">
-                                                                <span className="font-bold">Form:</span> {team2Form > 0 ? '+' : ''}{team2Form.toFixed(2)}
-                                                            </div>
-                                                            <div className="flex items-center gap-1 text-[10px] text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-100" title="Sức mạnh thực tế (Gốc + Form) dùng để tính kèo">
-                                                                <BrainCircuit className="w-3 h-3" />
-                                                                <span className="font-bold">Thực:</span> {opponentPair.strength.toFixed(2)}
-                                                            </div>
+                                                        <div className="font-bold text-slate-900 text-sm leading-tight">
+                                                            {getPlayerName(match.team2.player1.id)} 
+                                                            <br/>
+                                                            {mode === 'find_partner' && targetOpponentIds.filter(x=>x).length === 1 ? (
+                                                                <span className="text-red-600 font-black">+ {getPlayerName(match.team2.player2.id)}</span>
+                                                            ) : (
+                                                                <span>& {getPlayerName(match.team2.player2.id)}</span>
+                                                            )}
+                                                        </div>
+                                                        <div className="text-[10px] text-slate-500 font-mono mt-1">
+                                                            Rating: {match.team2.strength.toFixed(2)}
                                                         </div>
                                                     </div>
                                                 </div>
@@ -415,7 +567,7 @@ export const AiMatchmaker: React.FC<AiMatchmakerProps> = ({ players, matches }) 
                                                         </div>
                                                         <div className="bg-white border-2 border-yellow-200 rounded-lg p-2 shadow-sm">
                                                             <div className="text-xs text-slate-600 font-bold">
-                                                                {match.handicap.team === 1 ? 'Khách chấp Chủ Nhà' : 'Chủ Nhà chấp Khách'}
+                                                                {match.handicap.team === 1 ? 'Khách chấp Chủ' : 'Chủ chấp Khách'}
                                                             </div>
                                                             <div className="text-2xl font-black text-yellow-600 leading-none my-1">
                                                                 {match.handicap.points} quả
@@ -462,7 +614,12 @@ export const AiMatchmaker: React.FC<AiMatchmakerProps> = ({ players, matches }) 
                                 <>
                                     <Target className="w-16 h-16 mb-4 opacity-20" />
                                     <p className="font-medium text-slate-400">Chưa có kết quả</p>
-                                    <p className="text-sm mt-1 max-w-xs text-center">Chọn cặp đôi chủ nhà ở cột bên trái và nhấn nút để tìm đối thủ.</p>
+                                    <p className="text-sm mt-1 max-w-xs text-center">
+                                        {mode === 'find_opponent' 
+                                            ? "Chọn cặp đôi chủ nhà ở cột bên trái và nhấn nút để tìm đối thủ." 
+                                            : "Chọn tên bạn và đối thủ dự kiến để tìm người đánh cặp."
+                                        }
+                                    </p>
                                 </>
                             )}
                         </div>

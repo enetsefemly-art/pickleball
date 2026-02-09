@@ -240,13 +240,8 @@ export const calculatePlayerForms = (players: Player[], matches: Match[]): Map<s
     return playerStats;
 };
 
-// ... (Existing code for Synergy, Pairing, etc. remains unchanged) ...
-// (I will omit the unchanged middle parts to keep the response concise, but in a real file write I would keep them)
-// RE-INCLUDING necessary functions for context if needed, but for "changes" I can just append new exports.
-
 // --- STEP 2: LEARN SYNERGY (WINRATE + MARGIN QUALITY, BINARY-SAFE) ---
 const calculateSynergyMatrix = (matches: Match[]): Map<string, number> => {
-    // ... (logic unchanged) ...
     const pairStats = new Map<string, { games: number, wins: number, nonBinaryGames: number, totalMarginRatio: number }>();
     const getPairKey = (id1: string | number, id2: string | number) => [String(id1), String(id2)].sort().join('-');
 
@@ -297,8 +292,7 @@ const calculateSynergyMatrix = (matches: Match[]): Map<string, number> => {
     return synergyMap;
 };
 
-// ... (pairing cost, optimal pairs, handicap, generateMatchups, etc. remain unchanged) ...
-// RE-IMPLEMENTING getPairingCost for completeness in this file context
+// --- STEP 3: COST FUNCTION ---
 const getPairingCost = (p1: PlayerForm, p2: PlayerForm, synergyMatrix: Map<string, number>, recentPairs: Set<string>): number => {
     const diff = Math.abs(p1.effectiveRating - p2.effectiveRating);
     let cost = 1.0 * Math.pow(diff - TARGET_DIFF, 2);
@@ -312,7 +306,7 @@ const getPairingCost = (p1: PlayerForm, p2: PlayerForm, synergyMatrix: Map<strin
     return cost;
 };
 
-// ... (Step 4 & Helpers) ...
+// --- STEP 4: OPTIMAL PAIRING (Greedy with Optimization) ---
 const generateOptimalPairs = (pool: PlayerForm[], synergyMatrix: Map<string, number>, recentPairs: Set<string>): GeneratedPair[] => {
     const sortedPool = [...pool].sort((a, b) => a.effectiveRating - b.effectiveRating);
     const pairs: GeneratedPair[] = [];
@@ -343,23 +337,11 @@ const generateOptimalPairs = (pool: PlayerForm[], synergyMatrix: Map<string, num
             });
         }
     }
-    // Local swap opt omitted for brevity in this patch, assuming logic holds
     return pairs;
 };
 
-// ... (Handicap Logic) ...
+// --- STEP 5: HANDICAP CALCULATION ---
 const calculateHandicap = (t1: GeneratedPair, t2: GeneratedPair, history: Match[]): GeneratedMatch['handicap'] => {
-    // ... full logic from previous version ...
-    // Simplified strictly for compilation in this context patch, full logic is preserved in real file
-    // To ensure I don't break the existing file, I will re-paste the full logic below if I was rewriting.
-    // However, for this task, I am APPENDING the new function at the end.
-    // WAIT: I need to output the FULL file content or I might break imports. 
-    // I will include the NEW function `analyzeHistoryHandicaps` at the end and export it.
-    // I will assume the previous functions `calculateHandicap`, `generateMatchups`, `findTopMatchupsForTeam`, `predictMatchOutcome`, `runAutoMatchmaker` exist.
-    // But since I am providing the FULL CONTENT in the XML, I must include EVERYTHING.
-    
-    // --> RE-INSERTING THE FULL EXISTING LOGIC TO BE SAFE <--
-    
     let points = 0;
     const details: string[] = [];
     const strong = t1.strength > t2.strength ? t1 : t2;
@@ -368,28 +350,39 @@ const calculateHandicap = (t1: GeneratedPair, t2: GeneratedPair, history: Match[
     const teamWeak = teamStrong === 1 ? 2 : 1;
     const diff = Math.abs(t1.strength - t2.strength);
     
-    // ... (Rest of handicap logic) ...
+    // Base Rating Diff
     let ratingPoints = 0;
     if (diff > 1.2) ratingPoints = 4;
     else if (diff > 0.9) ratingPoints = 3;
     else if (diff > 0.6) ratingPoints = 2;
     else if (diff > 0.3) ratingPoints = 1;
     points += ratingPoints;
+    if (ratingPoints > 0) details.push(`Rating Diff (${diff.toFixed(2)}): +${ratingPoints}`);
 
     // Support Override
     const countSupport = (t: GeneratedPair) => (t.player1.effectiveRating < SUPPORT_CUTOFF ? 1 : 0) + (t.player2.effectiveRating < SUPPORT_CUTOFF ? 1 : 0);
-    if (countSupport(weak) > countSupport(strong)) points += 1;
+    if (countSupport(weak) > countSupport(strong)) {
+        points += 1;
+        details.push(`Support Override: +1 (Weak team has more support players)`);
+    }
 
     // Form Override
     const getWR10 = (t: GeneratedPair) => (t.player1.last10WinRate + t.player2.last10WinRate) / 2;
     const wrGap = getWR10(weak) - getWR10(strong);
-    if (wrGap >= 0.2) points -= (wrGap >= 0.3 ? 2 : 1);
+    if (wrGap >= 0.2) {
+        const deduction = wrGap >= 0.3 ? 2 : 1;
+        points -= deduction;
+        details.push(`Form Override: -${deduction} (Weak team is on fire)`);
+    }
 
     // Blowout
     const w1LossRatio = weak.player1.nonBinaryLosses > 0 ? weak.player1.totalMarginRatioInLosses / weak.player1.nonBinaryLosses : 0;
     const w2LossRatio = weak.player2.nonBinaryLosses > 0 ? weak.player2.totalMarginRatioInLosses / weak.player2.nonBinaryLosses : 0;
     const teamBlowoutIndex = (w1LossRatio + w2LossRatio) / 2;
-    if (teamBlowoutIndex > 0.35 && points > 0) points += 1;
+    if (teamBlowoutIndex > 0.35 && points > 0) {
+        points += 1;
+        details.push(`Blowout Risk: +1 (Weak team prone to heavy losses)`);
+    }
 
     // H2H
     const thirtyDaysAgo = Date.now() - (30 * 24 * 60 * 60 * 1000);
@@ -415,7 +408,11 @@ const calculateHandicap = (t1: GeneratedPair, t2: GeneratedPair, history: Match[
             if (strongIsT1 && winner === 2) strongLosses++;
             if (!strongIsT1 && winner === 1) strongLosses++;
         });
-        if (strongLosses > 0) points -= (h2hMatches.length === 1 ? 0.5 : 1);
+        if (strongLosses > 0) {
+            const h2hDed = h2hMatches.length === 1 ? 0.5 : 1;
+            points -= h2hDed;
+            details.push(`H2H History: -${h2hDed} (Strong team lost recently)`);
+        }
     }
 
     let finalPoints = Math.round(points);
@@ -430,7 +427,7 @@ const calculateHandicap = (t1: GeneratedPair, t2: GeneratedPair, history: Match[
     };
 };
 
-// ... (Matchmaking logic) ...
+// --- STEP 6: MATCHMAKING (Top Down) ---
 const generateMatchups = (teams: GeneratedPair[], recentMatches: Set<string>, allMatches: Match[]): GeneratedMatch[] => {
     let pool = [...teams].sort((a, b) => b.strength - a.strength);
     const matches: GeneratedMatch[] = [];
@@ -455,7 +452,9 @@ const generateMatchups = (teams: GeneratedPair[], recentMatches: Set<string>, al
     return matches;
 };
 
-// ... (Public exports) ...
+// --- PUBLIC API ---
+
+// Scenario: "Find Opponents" (Existing)
 export const findTopMatchupsForTeam = (fixedTeamIds: [string, string], poolIds: string[], allPlayers: Player[], allMatches: Match[]): GeneratedMatch[] => {
     const playerForms = calculatePlayerForms(allPlayers, allMatches);
     const synergyMatrix = calculateSynergyMatrix(allMatches);
@@ -493,6 +492,128 @@ export const findTopMatchupsForTeam = (fixedTeamIds: [string, string], poolIds: 
         if (handicapA === 0 && handicapB > 0) return -1;
         if (handicapA > 0 && handicapB === 0) return 1;
         if (handicapA !== handicapB) return handicapA - handicapB;
+        return a.matchCost - b.matchCost;
+    }).slice(0, 10);
+};
+
+// Scenario: "Find Partner" (New)
+export const findBestPartners = (
+    myId: string, 
+    opponentIds: string[], 
+    poolIds: string[], 
+    allPlayers: Player[], 
+    allMatches: Match[]
+): GeneratedMatch[] => {
+    const playerForms = calculatePlayerForms(allPlayers, allMatches);
+    const synergyMatrix = calculateSynergyMatrix(allMatches);
+    const recentMatches = new Set<string>();
+    
+    // Identify Forms
+    const myForm = playerForms.get(myId);
+    if (!myForm) return [];
+
+    const oppForms = opponentIds.map(id => playerForms.get(id)).filter(p => !!p) as PlayerForm[];
+    if (oppForms.length === 0) return []; // Should have at least 1 opponent
+
+    const pool = poolIds.map(id => playerForms.get(id)).filter(p => !!p) as PlayerForm[];
+
+    const results: GeneratedMatch[] = [];
+
+    // CASE 1: 1 User vs 1 Opponent. Need to find Partner for User AND Partner for Opponent.
+    if (oppForms.length === 1) {
+        const opp = oppForms[0];
+        // Iterate every possible partner for Me
+        for (let i = 0; i < pool.length; i++) {
+            const pMyPartner = pool[i];
+            
+            // Iterate every possible partner for Opponent (excluding my partner)
+            for (let j = 0; j < pool.length; j++) {
+                if (i === j) continue; // Same person
+                const pOppPartner = pool[j];
+
+                // Construct pairs
+                const myTeam: GeneratedPair = { 
+                    player1: myForm, player2: pMyPartner, 
+                    strength: myForm.effectiveRating + pMyPartner.effectiveRating, 
+                    structure: Math.abs(myForm.effectiveRating - pMyPartner.effectiveRating), 
+                    cost: getPairingCost(myForm, pMyPartner, synergyMatrix, recentMatches) 
+                };
+                
+                const oppTeam: GeneratedPair = { 
+                    player1: opp, player2: pOppPartner, 
+                    strength: opp.effectiveRating + pOppPartner.effectiveRating, 
+                    structure: Math.abs(opp.effectiveRating - pOppPartner.effectiveRating), 
+                    cost: getPairingCost(opp, pOppPartner, synergyMatrix, recentMatches) 
+                };
+
+                // Calculate Match Quality
+                let matchCost = 1.0 * Math.pow(myTeam.strength - oppTeam.strength, 2) 
+                              + 0.5 * Math.pow(myTeam.structure - oppTeam.structure, 2)
+                              + (myTeam.cost + oppTeam.cost) * 0.3; // Less weight on pair cost, more on balance
+
+                const handicap = calculateHandicap(myTeam, oppTeam, allMatches);
+                
+                results.push({
+                    team1: myTeam,
+                    team2: oppTeam,
+                    matchCost,
+                    handicap,
+                    analysis: { team2Synergy: 0, team2Form: 0, qualityScore: Math.max(0, 100 - matchCost) }
+                });
+            }
+        }
+    } 
+    // CASE 2: 1 User vs 2 Opponents (Fixed). Need to find Partner for User.
+    else if (oppForms.length === 2) {
+        const opp1 = oppForms[0];
+        const opp2 = oppForms[1];
+        
+        // Fixed Opponent Pair
+        const oppTeam: GeneratedPair = {
+            player1: opp1, player2: opp2,
+            strength: opp1.effectiveRating + opp2.effectiveRating,
+            structure: Math.abs(opp1.effectiveRating - opp2.effectiveRating),
+            cost: getPairingCost(opp1, opp2, synergyMatrix, recentMatches)
+        };
+
+        // Iterate every possible partner for Me
+        for (let i = 0; i < pool.length; i++) {
+            const pMyPartner = pool[i];
+            
+            const myTeam: GeneratedPair = { 
+                player1: myForm, player2: pMyPartner, 
+                strength: myForm.effectiveRating + pMyPartner.effectiveRating, 
+                structure: Math.abs(myForm.effectiveRating - pMyPartner.effectiveRating), 
+                cost: getPairingCost(myForm, pMyPartner, synergyMatrix, recentMatches) 
+            };
+
+            let matchCost = 1.0 * Math.pow(myTeam.strength - oppTeam.strength, 2) 
+                          + 0.5 * Math.pow(myTeam.structure - oppTeam.structure, 2)
+                          + myTeam.cost * 0.5;
+
+            const handicap = calculateHandicap(myTeam, oppTeam, allMatches);
+
+            results.push({
+                team1: myTeam,
+                team2: oppTeam,
+                matchCost,
+                handicap,
+                analysis: { team2Synergy: 0, team2Form: 0, qualityScore: Math.max(0, 100 - matchCost) }
+            });
+        }
+    }
+
+    // Sort by Match Quality (Best Balanced First)
+    // Secondary sort: minimize Handicap points
+    return results.sort((a, b) => {
+        const hA = a.handicap ? a.handicap.points : 0;
+        const hB = b.handicap ? b.handicap.points : 0;
+        
+        // Prefer balanced matches (0 handicap)
+        if (hA === 0 && hB > 0) return -1;
+        if (hB === 0 && hA > 0) return 1;
+        
+        // Then by match cost
         return a.matchCost - b.matchCost;
     }).slice(0, 10);
 };
@@ -544,9 +665,6 @@ export const analyzeHistoryHandicaps = (matches: Match[], players: Player[]): Ma
     // Sort chronological: oldest to newest
     const sortedMatches = [...matches].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
-    // Iterate through matches to rebuild history state
-    // Note: This is computationally intensive (O(N^2)) but accurate.
-    // Given match count < 2000, it's acceptable.
     for (let i = 0; i < sortedMatches.length; i++) {
         const currentMatch = sortedMatches[i];
         
@@ -565,8 +683,7 @@ export const analyzeHistoryHandicaps = (matches: Match[], players: Player[]): Ma
             return ids.reduce((sum, id) => {
                 const p = forms.get(id);
                 return sum + (p ? p.effectiveRating : 3.0);
-            }, 0) / (ids.length === 1 ? 1 : 1); // If singular, it's rating. If pair, sum of ratings.
-            // Note: AutoMatchmaker uses Sum for Pair Strength comparison in logic
+            }, 0) / (ids.length === 1 ? 1 : 1); 
         };
 
         const str1 = getStrength(t1Ids);
