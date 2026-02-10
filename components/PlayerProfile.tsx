@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Player, Match } from '../types';
 import { Card } from './Card';
-import { Trophy, TrendingUp, DollarSign, X, AlertTriangle, Target, Gamepad2, Award, Handshake, HeartCrack, Users, List, Calendar, ChevronRight, Activity, Gift } from 'lucide-react';
+import { Trophy, TrendingUp, DollarSign, X, AlertTriangle, Target, Gamepad2, Award, Handshake, HeartCrack, Users, List, Calendar, ChevronRight, Activity, Gift, Swords } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, ReferenceLine, Cell } from 'recharts';
 import { getDailyRatingHistory, getTournamentStandings } from '../services/storageService';
 
@@ -136,7 +136,13 @@ export const PlayerProfile: React.FC<PlayerProfileProps> = ({ player, players, m
         };
     });
 
-    // Filter Rivals: At least 3 matches against
+    // Sort Rivals for Full List (By Matches Desc, then WinRate)
+    const sortedRivals = [...rivals].sort((a, b) => {
+        if (b.matchesWith !== a.matchesWith) return b.matchesWith - a.matchesWith;
+        return b.winRate - a.winRate;
+    });
+
+    // Filter Rivals for Highlights: At least 3 matches against
     const eligibleRivals = rivals.filter(r => r.matchesWith >= 3);
 
     // Find "Con mồi" (Highest Win Rate)
@@ -266,7 +272,7 @@ export const PlayerProfile: React.FC<PlayerProfileProps> = ({ player, players, m
 
     return { 
         playerMatches, // Exposed for History Tab
-        prey, nemesis, bestPartner, worstPartner, sortedPartners, winRateChartData, financeChartData 
+        prey, nemesis, bestPartner, worstPartner, sortedPartners, sortedRivals, winRateChartData, financeChartData 
     };
 
   }, [player, matches, playerLookup]);
@@ -619,6 +625,69 @@ export const PlayerProfile: React.FC<PlayerProfileProps> = ({ player, players, m
                                     </div>
                                 </div>
 
+                            </div>
+
+                            {/* NEW SECTION: FULL OPPONENT HISTORY LIST */}
+                            <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden animate-fade-in">
+                                <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/50 flex items-center gap-2">
+                                    <Swords className="w-5 h-5 text-slate-500" />
+                                    <h3 className="font-bold text-slate-800 text-sm md:text-base">Lịch Sử Đối Đầu Chi Tiết</h3>
+                                </div>
+                                <div className="overflow-x-auto">
+                                    <table className="w-full text-sm text-left">
+                                        <thead className="bg-slate-50 text-slate-500 font-bold text-[10px] md:text-xs uppercase">
+                                            <tr>
+                                                <th className="px-4 py-3">Người Đối Đầu</th>
+                                                <th className="px-4 py-3 text-center">Số Trận</th>
+                                                <th className="px-4 py-3 text-center">Thắng - Thua</th>
+                                                <th className="px-4 py-3 text-center">Hiệu Số</th>
+                                                <th className="px-4 py-3 text-right">Tỉ Lệ Thắng</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-slate-100">
+                                            {analysis.sortedRivals.length > 0 ? (
+                                                analysis.sortedRivals.map((p, idx) => {
+                                                    const losses = p.matchesWith - p.winsAgainst;
+                                                    const diff = p.winsAgainst - losses;
+                                                    return (
+                                                        <tr key={p.id} className="hover:bg-slate-50/50 transition-colors">
+                                                            <td className="px-4 py-3 font-medium text-slate-900 flex items-center gap-2">
+                                                                <span className="w-6 h-6 rounded-full bg-slate-100 text-slate-500 flex items-center justify-center text-xs font-bold border border-slate-200">
+                                                                    {idx + 1}
+                                                                </span>
+                                                                {p.name}
+                                                            </td>
+                                                            <td className="px-4 py-3 text-center text-slate-600 font-medium">
+                                                                {p.matchesWith}
+                                                            </td>
+                                                            <td className="px-4 py-3 text-center text-xs font-medium">
+                                                                <span className="text-green-600">{p.winsAgainst}</span>
+                                                                <span className="mx-1 text-slate-300">-</span>
+                                                                <span className="text-red-500">{losses}</span>
+                                                            </td>
+                                                            <td className="px-4 py-3 text-center text-xs font-bold">
+                                                                <span className={diff > 0 ? 'text-green-600' : diff < 0 ? 'text-red-500' : 'text-slate-400'}>
+                                                                    {diff > 0 ? '+' : ''}{diff}
+                                                                </span>
+                                                            </td>
+                                                            <td className="px-4 py-3 text-right">
+                                                                <span className={`font-bold ${p.winRate >= 0.5 ? 'text-green-600' : 'text-orange-500'}`}>
+                                                                    {Math.round(p.winRate * 100)}%
+                                                                </span>
+                                                            </td>
+                                                        </tr>
+                                                    );
+                                                })
+                                            ) : (
+                                                <tr>
+                                                    <td colSpan={5} className="px-4 py-8 text-center text-slate-400 italic">
+                                                        Chưa có dữ liệu đối đầu.
+                                                    </td>
+                                                </tr>
+                                            )}
+                                        </tbody>
+                                    </table>
+                                </div>
                             </div>
 
                             {/* NEW SECTION: FULL PARTNER HISTORY LIST */}
