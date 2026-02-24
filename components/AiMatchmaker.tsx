@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { Player, Match } from '../types';
 import { Card } from './Card';
 import { findTopMatchupsForTeam, findBestPartners, GeneratedMatch } from '../services/autoMatchmaker';
-import { Zap, Shield, Target, CheckCircle2, AlertCircle, Sparkles, TrendingUp, Users, Scale, Info, BrainCircuit, History, Swords, UserPlus, User } from 'lucide-react';
+import { Zap, Shield, Target, CheckCircle2, AlertCircle, Sparkles, TrendingUp, Users, Scale, Info, BrainCircuit, History, Swords, UserPlus, User, Filter, X, CheckSquare, Square, Settings2 } from 'lucide-react';
 
 interface AiMatchmakerProps {
   players: Player[];
@@ -21,6 +21,10 @@ export const AiMatchmaker: React.FC<AiMatchmakerProps> = ({ players, matches }) 
   const [myId, setMyId] = useState<string>('');
   const [targetOpponentIds, setTargetOpponentIds] = useState<string[]>(['', '']); // Max 2 slots
 
+  // --- POOL SELECTION STATE ---
+  const [excludedPlayerIds, setExcludedPlayerIds] = useState<string[]>([]);
+  const [showPoolModal, setShowPoolModal] = useState(false);
+
   // --- RESULTS STATE ---
   const [results, setResults] = useState<GeneratedMatch[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -31,6 +35,25 @@ export const AiMatchmaker: React.FC<AiMatchmakerProps> = ({ players, matches }) 
 
   // Sorting for display
   const sortedPlayers = useMemo(() => [...activePlayers].sort((a, b) => a.name.localeCompare(b.name)), [activePlayers]);
+
+  // Pool Logic
+  const togglePoolPlayer = (id: string) => {
+      setExcludedPlayerIds(prev => 
+          prev.includes(id) 
+          ? prev.filter(x => x !== id) 
+          : [...prev, id]
+      );
+  };
+
+  const toggleAllPool = (select: boolean) => {
+      if (select) {
+          setExcludedPlayerIds([]);
+      } else {
+          setExcludedPlayerIds(activePlayers.map(p => String(p.id)));
+      }
+  };
+
+  const currentPoolSize = activePlayers.length - excludedPlayerIds.length;
 
   const handleRunFindOpponent = () => {
       setError(null);
@@ -52,12 +75,12 @@ export const AiMatchmaker: React.FC<AiMatchmakerProps> = ({ players, matches }) 
             const poolIds = activePlayers
                 .filter(p => {
                     const pid = String(p.id);
-                    return pid !== p1Id && pid !== p2Id;
+                    return pid !== p1Id && pid !== p2Id && !excludedPlayerIds.includes(pid);
                 })
                 .map(p => String(p.id));
 
             if (poolIds.length < 2) {
-                setError("Không đủ người chơi active để ghép đối thủ (Cần ít nhất 2 người).");
+                setError(`Không đủ người chơi trong pool để ghép đối thủ (Cần ít nhất 2 người). Hiện có: ${poolIds.length}`);
                 setIsSearching(false);
                 return;
             }
@@ -105,7 +128,7 @@ export const AiMatchmaker: React.FC<AiMatchmakerProps> = ({ players, matches }) 
               const poolIds = activePlayers
                   .filter(p => {
                       const pid = String(p.id);
-                      return pid !== myId && !validOpponents.includes(pid);
+                      return pid !== myId && !validOpponents.includes(pid) && !excludedPlayerIds.includes(pid);
                   })
                   .map(p => String(p.id));
               
@@ -114,7 +137,7 @@ export const AiMatchmaker: React.FC<AiMatchmakerProps> = ({ players, matches }) 
               const requiredPoolSize = validOpponents.length === 1 ? 2 : 1;
 
               if (poolIds.length < requiredPoolSize) {
-                  setError(`Không đủ người chơi active để ghép (Cần thêm ít nhất ${requiredPoolSize} người).`);
+                  setError(`Không đủ người chơi trong pool để ghép (Cần thêm ít nhất ${requiredPoolSize} người). Hiện có: ${poolIds.length}`);
                   setIsSearching(false);
                   return;
               }
@@ -448,6 +471,36 @@ export const AiMatchmaker: React.FC<AiMatchmakerProps> = ({ players, matches }) 
                         </div>
                     </Card>
                 )}
+
+                {/* POOL CONFIGURATION CARD */}
+                <Card title="Cấu Hình Pool Người Chơi" classNameTitle="bg-slate-800 text-white font-bold uppercase text-xs tracking-wider flex items-center gap-2">
+                    <div className="flex flex-col gap-4">
+                        <div className="flex items-center justify-between bg-slate-50 p-3 rounded-lg border border-slate-200">
+                            <div className="flex items-center gap-3">
+                                <div className="p-2 bg-white rounded-full border border-slate-200 shadow-sm">
+                                    <Users className="w-5 h-5 text-slate-600" />
+                                </div>
+                                <div>
+                                    <div className="text-xs font-bold text-slate-500 uppercase">Pool Hiện Tại</div>
+                                    <div className="text-lg font-black text-slate-800">
+                                        {currentPoolSize} <span className="text-sm font-medium text-slate-400">/ {activePlayers.length}</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <button 
+                                onClick={() => setShowPoolModal(true)}
+                                className="p-2 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg transition-colors"
+                                title="Chỉnh sửa Pool"
+                            >
+                                <Settings2 className="w-5 h-5" />
+                            </button>
+                        </div>
+                        
+                        <div className="text-[10px] text-slate-400 italic text-center">
+                            * Chỉ những người chơi trong Pool mới được AI sử dụng để ghép cặp.
+                        </div>
+                    </div>
+                </Card>
             </div>
 
             {/* RIGHT: Results */}
@@ -627,6 +680,83 @@ export const AiMatchmaker: React.FC<AiMatchmakerProps> = ({ players, matches }) 
                 </Card>
             </div>
         </div>
+
+        {/* POOL SELECTION MODAL */}
+        {showPoolModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-sm animate-fade-in">
+                <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[80vh]">
+                    {/* Header */}
+                    <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+                        <div className="flex items-center gap-2">
+                            <Filter className="w-5 h-5 text-slate-500" />
+                            <h3 className="font-bold text-slate-800">Chọn Pool Người Chơi</h3>
+                        </div>
+                        <button onClick={() => setShowPoolModal(false)} className="p-2 hover:bg-slate-200 rounded-full transition-colors">
+                            <X className="w-5 h-5 text-slate-500" />
+                        </button>
+                    </div>
+
+                    {/* Toolbar */}
+                    <div className="flex items-center justify-between p-3 border-b border-slate-100 gap-2 bg-white">
+                        <div className="flex gap-2">
+                            <button 
+                                onClick={() => toggleAllPool(true)}
+                                className="px-3 py-1.5 bg-violet-50 text-violet-700 text-xs font-bold rounded-lg hover:bg-violet-100 transition-colors border border-violet-100"
+                            >
+                                Chọn Tất Cả
+                            </button>
+                            <button 
+                                onClick={() => toggleAllPool(false)}
+                                className="px-3 py-1.5 bg-slate-50 text-slate-600 text-xs font-bold rounded-lg hover:bg-slate-100 transition-colors border border-slate-100"
+                            >
+                                Bỏ Chọn Tất Cả
+                            </button>
+                        </div>
+                        <div className="text-xs font-bold text-slate-400">
+                            Đã chọn: {currentPoolSize}
+                        </div>
+                    </div>
+
+                    {/* List */}
+                    <div className="flex-1 overflow-y-auto p-4 grid grid-cols-1 sm:grid-cols-2 gap-2 custom-scrollbar bg-slate-50/50">
+                        {sortedPlayers.map(p => {
+                            const pid = String(p.id);
+                            const isExcluded = excludedPlayerIds.includes(pid);
+                            const isSelected = !isExcluded;
+                            return (
+                                <div 
+                                    key={p.id} 
+                                    onClick={() => togglePoolPlayer(pid)}
+                                    className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-all select-none group ${
+                                        isSelected 
+                                        ? 'bg-white border-violet-200 shadow-sm ring-1 ring-violet-100' 
+                                        : 'bg-slate-50 border-slate-100 opacity-60 hover:opacity-100'
+                                    }`}
+                                >
+                                    <div className={`w-5 h-5 rounded flex items-center justify-center transition-colors shrink-0 ${isSelected ? 'bg-violet-500 text-white' : 'bg-slate-200 text-slate-400 group-hover:bg-slate-300'}`}>
+                                        {isSelected ? <CheckSquare className="w-3.5 h-3.5" /> : <Square className="w-3.5 h-3.5" />}
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                        <div className={`font-bold text-sm truncate ${isSelected ? 'text-slate-800' : 'text-slate-500'}`}>{p.name}</div>
+                                        <div className="text-[10px] text-slate-400 font-mono">Rate: {(p.tournamentRating || p.initialPoints || 0).toFixed(1)}</div>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+
+                    {/* Footer */}
+                    <div className="p-4 border-t border-slate-100 bg-white flex justify-end">
+                        <button 
+                            onClick={() => setShowPoolModal(false)}
+                            className="px-6 py-2 bg-slate-900 text-white font-bold rounded-xl hover:bg-slate-800 transition-colors shadow-lg shadow-slate-200 active:scale-95"
+                        >
+                            Xong
+                        </button>
+                    </div>
+                </div>
+            </div>
+        )}
     </div>
   );
 };
