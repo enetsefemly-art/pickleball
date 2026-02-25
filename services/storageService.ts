@@ -253,7 +253,7 @@ const calculateAndApplyMonthlyBonuses = (
                 if (hasEligibleMatches) {
                     const currentRating = p.tournamentRating || 3.0;
                     const updatedRating = Math.min(V2_RATING_MAX, Math.max(V2_RATING_MIN, currentRating + placementBonus));
-                    p.tournamentRating = Math.round(updatedRating * 100) / 100;
+                    p.tournamentRating = Math.round(updatedRating * 10000) / 10000;
                 }
             }
         });
@@ -262,7 +262,9 @@ const calculateAndApplyMonthlyBonuses = (
 
 export const calculatePlayerStats = (players: Player[], matches: Match[]): Player[] => {
   const resetPlayers = players.map(p => {
-      const baseRating = typeof p.initialPoints === 'number' ? p.initialPoints : 1000;
+      // Fix: Default rating should be 3.0, not 1000 (which is for betting points)
+      const rawInitial = Number(p.initialPoints);
+      const baseRating = (!isNaN(rawInitial) && rawInitial < 10 && rawInitial > 0) ? rawInitial : 3.0;
       return {
         ...p,
         matchesPlayed: 0,
@@ -370,7 +372,10 @@ export const calculatePlayerStats = (players: Player[], matches: Match[]): Playe
         
         const TeamChangeA = V2_K * (ResultA - ExpectedA) * MarginFactor;
 
-        const updateV2 = (pid: string, teamAvg: number, teamChange: number, teammateIds: string[]) => {
+        // FIX: Calculate all updates first, then apply them (Simultaneous Update)
+        const pendingUpdates = new Map<string, number>();
+
+        const calculateUpdate = (pid: string, teamAvg: number, teamChange: number, teammateIds: string[]) => {
             const p = playerMap.get(pid);
             if (!p) return;
             const R_old = p.tournamentRating || 3.0;
@@ -383,11 +388,21 @@ export const calculatePlayerStats = (players: Player[], matches: Match[]): Playe
                 W = w_me / (w_me + w_partner);
             }
             let change = Math.min(V2_MAX_CHANGE, Math.max(-V2_MAX_CHANGE, W * teamChange));
-            p.tournamentRating = Math.round(Math.min(V2_RATING_MAX, Math.max(V2_RATING_MIN, R_old + change)) * 100) / 100;
+            pendingUpdates.set(pid, change);
         };
 
-        team1Ids.forEach(pid => updateV2(pid, TA, TeamChangeA, team1Ids));
-        team2Ids.forEach(pid => updateV2(pid, TB, -TeamChangeA, team2Ids));
+        team1Ids.forEach(pid => calculateUpdate(pid, TA, TeamChangeA, team1Ids));
+        team2Ids.forEach(pid => calculateUpdate(pid, TB, -TeamChangeA, team2Ids));
+
+        // Apply updates
+        pendingUpdates.forEach((change, pid) => {
+            const p = playerMap.get(pid);
+            if (p) {
+                const R_old = p.tournamentRating || 3.0;
+                // Use 4 decimal places for storage
+                p.tournamentRating = Math.round(Math.min(V2_RATING_MAX, Math.max(V2_RATING_MIN, R_old + change)) * 10000) / 10000;
+            }
+        });
     }
 
     // --- APPLY BONUS IF THIS IS THE LAST MATCH OF A TOURNAMENT ---
@@ -410,9 +425,11 @@ export const getDailyRatingHistory = (players: Player[], matches: Match[]) => {
     
     // Init map with initial ratings
     players.forEach(p => {
+        const rawInitial = Number(p.initialPoints);
+        const baseRating = (!isNaN(rawInitial) && rawInitial < 10 && rawInitial > 0) ? rawInitial : 3.0;
         playerMap.set(String(p.id), { 
             ...p, 
-            tournamentRating: typeof p.initialPoints === 'number' ? p.initialPoints : 1000 
+            tournamentRating: baseRating
         });
     });
 
@@ -495,7 +512,10 @@ export const getDailyRatingHistory = (players: Player[], matches: Match[]) => {
             
             const TeamChangeA = V2_K * (ResultA - ExpectedA) * MarginFactor;
 
-            const updateV2 = (pid: string, teamAvg: number, teamChange: number, teammateIds: string[]) => {
+            // FIX: Simultaneous Update
+            const pendingUpdates = new Map<string, number>();
+
+            const calculateUpdate = (pid: string, teamAvg: number, teamChange: number, teammateIds: string[]) => {
                 const p = playerMap.get(pid);
                 if (!p) return;
                 const R_old = p.tournamentRating || 3.0;
@@ -508,11 +528,20 @@ export const getDailyRatingHistory = (players: Player[], matches: Match[]) => {
                     W = w_me / (w_me + w_partner);
                 }
                 let change = Math.min(V2_MAX_CHANGE, Math.max(-V2_MAX_CHANGE, W * teamChange));
-                p.tournamentRating = Math.round(Math.min(V2_RATING_MAX, Math.max(V2_RATING_MIN, R_old + change)) * 100) / 100;
+                pendingUpdates.set(pid, change);
             };
 
-            team1Ids.forEach(pid => updateV2(pid, TA, TeamChangeA, team1Ids));
-            team2Ids.forEach(pid => updateV2(pid, TB, -TeamChangeA, team2Ids));
+            team1Ids.forEach(pid => calculateUpdate(pid, TA, TeamChangeA, team1Ids));
+            team2Ids.forEach(pid => calculateUpdate(pid, TB, -TeamChangeA, team2Ids));
+
+            pendingUpdates.forEach((change, pid) => {
+                const p = playerMap.get(pid);
+                if (p) {
+                    const R_old = p.tournamentRating || 3.0;
+                    // Use 4 decimal places for storage
+                    p.tournamentRating = Math.round(Math.min(V2_RATING_MAX, Math.max(V2_RATING_MIN, R_old + change)) * 10000) / 10000;
+                }
+            });
         }
 
         // Apply BONUS immediately if this is the last tournament match
@@ -529,12 +558,156 @@ export const getDailyRatingHistory = (players: Player[], matches: Match[]) => {
     return history;
 };
 
+// --- NEW: Get detailed match-by-match rating history for a specific player ---
+export const getPlayerRatingHistory = (playerId: string, players: Player[], matches: Match[]) => {
+    const history: { match: Match, ratingBefore: number, ratingAfter: number, change: number }[] = [];
+    const playerMap = new Map<string, Player>();
+    
+    // Init map with initial ratings
+    players.forEach(p => {
+        const rawInitial = Number(p.initialPoints);
+        const baseRating = (!isNaN(rawInitial) && rawInitial < 10 && rawInitial > 0) ? rawInitial : 3.0;
+        playerMap.set(String(p.id), { 
+            ...p, 
+            tournamentRating: baseRating
+        });
+    });
+
+    const sortedMatches = [...matches].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    
+    // --- PRE-CALCULATE TOURNAMENT TRIGGERS ---
+    const tournamentEndTriggers = new Set<string>();
+    const tournamentMatchesByMonth = new Map<string, Match[]>();
+
+    sortedMatches.forEach(m => {
+        if (m.type === 'tournament') {
+            const month = m.date.slice(0, 7);
+            if (!tournamentMatchesByMonth.has(month)) tournamentMatchesByMonth.set(month, []);
+            tournamentMatchesByMonth.get(month)!.push(m);
+        }
+    });
+
+    tournamentMatchesByMonth.forEach((list) => {
+        if (list.length > 0) {
+            tournamentEndTriggers.add(list[list.length - 1].id);
+        }
+    });
+
+    for (const match of sortedMatches) {
+        let s1 = Number(match.score1);
+        let s2 = Number(match.score2);
+        if (isNaN(s1) || isNaN(s2) || s1 < 0 || s2 < 0 || s1 === s2) continue;
+
+        const isTeam1Winner = s1 > s2;
+        const team1Ids = [...new Set(match.team1)].map(String);
+        const team2Ids = [...new Set(match.team2)].map(String);
+        
+        const mDateObj = new Date(match.date);
+        const isEligibleForPoints = mDateObj.getTime() >= RATING_START_DATE.getTime();
+        const isLegacyV1 = isEligibleForPoints && mDateObj.getTime() < RATING_RULE_2_DATE.getTime();
+        const isRuleV2 = mDateObj.getTime() >= RATING_RULE_2_DATE.getTime();
+
+        // Capture rating BEFORE update if player is involved
+        const isPlayerInvolved = team1Ids.includes(playerId) || team2Ids.includes(playerId);
+        let ratingBefore = 0;
+        let myChange = 0; // Track exact change for this player
+
+        if (isPlayerInvolved) {
+             ratingBefore = playerMap.get(playerId)?.tournamentRating || 3.0;
+        }
+
+        if (isLegacyV1) {
+            const applyLegacy = (ids: string[], isWin: boolean) => {
+                ids.forEach(pid => {
+                    const p = playerMap.get(pid);
+                    if (!p) return;
+                    let currentRating = p.tournamentRating || 3.0;
+                    const oldR = currentRating;
+                    if (isWin) currentRating = Math.min(MAX_RATING_V1, currentRating + RATING_STEP_V1);
+                    else currentRating = Math.max(MIN_RATING_V1, currentRating - RATING_STEP_V1);
+                    
+                    const newR = Math.round(currentRating * 100) / 100;
+                    p.tournamentRating = newR;
+
+                    if (pid === playerId) myChange = newR - oldR;
+                });
+            };
+            applyLegacy(team1Ids, isTeam1Winner);
+            applyLegacy(team2Ids, !isTeam1Winner);
+        } else if (isRuleV2) {
+            const getR = (pid: string) => playerMap.get(pid)?.tournamentRating || 3.0;
+            const getTeamRating = (ids: string[]) => ids.length ? ids.reduce((acc, pid) => acc + getR(pid), 0) / ids.length : 3.0;
+
+            const TA = getTeamRating(team1Ids);
+            const TB = getTeamRating(team2Ids);
+            const ExpectedA = 1 / (1 + Math.exp(-(TA - TB) / V2_TAU));
+            const ResultA = isTeam1Winner ? 1 : 0;
+            const MarginFactor = Math.min(1.20, Math.max(0.85, 1 + V2_ALPHA * ((Math.abs(s1 - s2) / V2_WIN_SCORE) - 0.25)));
+            
+            const TeamChangeA = V2_K * (ResultA - ExpectedA) * MarginFactor;
+
+            const pendingUpdates = new Map<string, number>();
+
+            const calculateUpdate = (pid: string, teamAvg: number, teamChange: number, teammateIds: string[]) => {
+                const p = playerMap.get(pid);
+                if (!p) return;
+                const R_old = p.tournamentRating || 3.0;
+                let W = 1.0;
+                const partnerId = teammateIds.find(id => id !== pid);
+                if (partnerId) {
+                    const R_partner = getR(partnerId);
+                    const w_me = Math.exp(-V2_BETA * (R_old - teamAvg));
+                    const w_partner = Math.exp(-V2_BETA * (R_partner - teamAvg));
+                    W = w_me / (w_me + w_partner);
+                }
+                let change = Math.min(V2_MAX_CHANGE, Math.max(-V2_MAX_CHANGE, W * teamChange));
+                pendingUpdates.set(pid, change);
+            };
+
+            team1Ids.forEach(pid => calculateUpdate(pid, TA, TeamChangeA, team1Ids));
+            team2Ids.forEach(pid => calculateUpdate(pid, TB, -TeamChangeA, team2Ids));
+
+            pendingUpdates.forEach((change, pid) => {
+                const p = playerMap.get(pid);
+                if (p) {
+                    const R_old = p.tournamentRating || 3.0;
+                    const newR = Math.round(Math.min(V2_RATING_MAX, Math.max(V2_RATING_MIN, R_old + change)) * 10000) / 10000;
+                    p.tournamentRating = newR;
+
+                    if (pid === playerId) myChange = newR - R_old; // Use EFFECTIVE change
+                }
+            });
+        }
+
+        // Capture rating AFTER match but BEFORE bonus (to match "Detailed Scoring" logic)
+        if (isPlayerInvolved) {
+            const ratingAfter = playerMap.get(playerId)?.tournamentRating || 3.0;
+            history.push({
+                match,
+                ratingBefore,
+                ratingAfter,
+                change: myChange // Use the exact calculated change
+            });
+        }
+
+        // Apply BONUS immediately if this is the last tournament match
+        if (tournamentEndTriggers.has(match.id)) {
+            const month = match.date.slice(0, 7);
+            const tourMatches = tournamentMatchesByMonth.get(month) || [];
+            calculateAndApplyMonthlyBonuses(month, tourMatches, playerMap);
+        }
+    }
+
+    return history;
+};
+
 // IMPLEMENTED: Re-simulation to get exact match calculation details
 export const getMatchRatingDetails = (matchId: string, matches: Match[], players: Player[]): RatingCalculationLog | null => {
     // 1. Setup temporary simulation environment
     const tempPlayerMap = new Map<string, number>();
     players.forEach(p => {
-        const r = typeof p.initialPoints === 'number' ? p.initialPoints : 1000;
+        const rawInitial = Number(p.initialPoints);
+        const r = (!isNaN(rawInitial) && rawInitial < 10 && rawInitial > 0) ? rawInitial : 3.0;
         tempPlayerMap.set(String(p.id), r);
     });
 
@@ -592,7 +765,7 @@ export const getMatchRatingDetails = (matchId: string, matches: Match[], players
             
             team.playerIds.forEach(pid => {
                 const cur = tempPlayerMap.get(String(pid)) || 3.0;
-                tempPlayerMap.set(String(pid), Math.min(V2_RATING_MAX, Math.max(V2_RATING_MIN, cur + bonus)));
+                tempPlayerMap.set(String(pid), Math.round(Math.min(V2_RATING_MAX, Math.max(V2_RATING_MIN, cur + bonus)) * 10000) / 10000);
             });
         });
     };
@@ -622,7 +795,10 @@ export const getMatchRatingDetails = (matchId: string, matches: Match[], players
              const MF = Math.min(1.20, Math.max(0.85, 1 + V2_ALPHA * ((Math.abs(s1 - s2) / V2_WIN_SCORE) - 0.25)));
              const TCA = V2_K * (ResA - ExpA) * MF;
              
-             const update = (pid: string, avg: number, chg: number, partners: string[]) => {
+             // FIX: Simultaneous Update
+             const pendingUpdates = new Map<string, number>();
+
+             const calculateUpdate = (pid: string, avg: number, chg: number, partners: string[]) => {
                  const oldR = getR(pid);
                  const partnerId = partners.find(id => id !== pid);
                  let W = 1.0;
@@ -633,15 +809,28 @@ export const getMatchRatingDetails = (matchId: string, matches: Match[], players
                      W = wm / (wm + wp);
                  }
                  const finalChg = Math.min(V2_MAX_CHANGE, Math.max(-V2_MAX_CHANGE, W * chg));
-                 setR(pid, Math.round((oldR + finalChg) * 100) / 100);
+                 // Use 4 decimal places for storage, and CLAMP to min/max
+                 const newR = Math.min(V2_RATING_MAX, Math.max(V2_RATING_MIN, oldR + finalChg));
+                 pendingUpdates.set(pid, Math.round(newR * 10000) / 10000);
              };
-             t1Ids.forEach(pid => update(pid, TA, TCA, t1Ids));
-             t2Ids.forEach(pid => update(pid, TB, -TCA, t2Ids));
+             
+             t1Ids.forEach(pid => calculateUpdate(pid, TA, TCA, t1Ids));
+             t2Ids.forEach(pid => calculateUpdate(pid, TB, -TCA, t2Ids));
+
+             pendingUpdates.forEach((newR, pid) => setR(pid, newR));
         } else if (isEligible) {
              // V1 Logic Simplified (Only if date eligible)
              const change = RATING_STEP_V1;
-             t1Ids.forEach(pid => setR(pid, Math.min(MAX_RATING_V1, getR(pid) + (isWin ? change : -change))));
-             t2Ids.forEach(pid => setR(pid, Math.max(MIN_RATING_V1, getR(pid) + (!isWin ? change : -change))));
+             t1Ids.forEach(pid => {
+                 const current = getR(pid);
+                 const next = Math.min(MAX_RATING_V1, current + (isWin ? change : -change));
+                 setR(pid, Math.round(next * 100) / 100);
+             });
+             t2Ids.forEach(pid => {
+                 const current = getR(pid);
+                 const next = Math.max(MIN_RATING_V1, current + (!isWin ? change : -change));
+                 setR(pid, Math.round(next * 100) / 100);
+             });
         }
 
         // --- APPLY BONUS IF TRIGGER HIT ---
@@ -679,7 +868,8 @@ export const getMatchRatingDetails = (matchId: string, matches: Match[], players
             W = wm / (wm + wp);
         }
         const change = Math.min(V2_MAX_CHANGE, Math.max(-V2_MAX_CHANGE, W * teamChange));
-        const newR = Math.round(Math.min(V2_RATING_MAX, Math.max(V2_RATING_MIN, oldR + change)) * 100) / 100;
+        // Use 4 decimal places for consistency
+        const newR = Math.round(Math.min(V2_RATING_MAX, Math.max(V2_RATING_MIN, oldR + change)) * 10000) / 10000;
         
         const pName = players.find(p => String(p.id) === pid)?.name || pid;
         
@@ -689,7 +879,7 @@ export const getMatchRatingDetails = (matchId: string, matches: Match[], players
             team,
             oldRating: oldR,
             newRating: newR,
-            change: change,
+            change: newR - oldR, // Return EFFECTIVE change
             weight: W
         });
     };

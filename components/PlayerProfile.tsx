@@ -1,9 +1,9 @@
 import React, { useMemo, useState } from 'react';
 import { Player, Match } from '../types';
 import { Card } from './Card';
-import { Trophy, TrendingUp, DollarSign, X, AlertTriangle, Target, Gamepad2, Award, Handshake, HeartCrack, Users, List, Calendar, ChevronRight, Activity, Gift, Swords } from 'lucide-react';
+import { Trophy, TrendingUp, DollarSign, X, AlertTriangle, Target, Gamepad2, Award, Handshake, HeartCrack, Users, List, Calendar, ChevronRight, ChevronDown, Activity, Gift, Swords } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, ReferenceLine, Cell } from 'recharts';
-import { getDailyRatingHistory, getTournamentStandings } from '../services/storageService';
+import { getDailyRatingHistory, getTournamentStandings, getPlayerRatingHistory } from '../services/storageService';
 
 interface PlayerProfileProps {
   player: Player;
@@ -30,6 +30,14 @@ interface PartnerStats {
 
 export const PlayerProfile: React.FC<PlayerProfileProps> = ({ player, players, matches, onClose }) => {
   const [activeTab, setActiveTab] = useState<'overview' | 'history'>('overview');
+  const [expandedDates, setExpandedDates] = useState<Set<string>>(new Set());
+
+  const toggleDate = (date: string) => {
+      const newSet = new Set(expandedDates);
+      if (newSet.has(date)) newSet.delete(date);
+      else newSet.add(date);
+      setExpandedDates(newSet);
+  };
 
   // Create a lookup for player names
   const playerLookup = useMemo(() => new Map(players.map(p => [String(p.id), p])), [players]);
@@ -277,132 +285,94 @@ export const PlayerProfile: React.FC<PlayerProfileProps> = ({ player, players, m
 
   }, [player, matches, playerLookup]);
 
-  // --- DAILY SUMMARY LOGIC (WITH RATING SIMULATION) ---
+  // --- DAILY SUMMARY LOGIC (WITH DETAILED MATCH HISTORY) ---
   const dailySummary = useMemo(() => {
         const currentPid = String(player.id);
         
-        // 1. Get Base Rating History from storageService (Includes everything)
+        // 1. Get Net Daily Changes (includes bonuses)
         const fullHistory = getDailyRatingHistory(players, matches);
-        
-        // Create delta map: date -> rating change for THIS player
         const ratingDeltaMap = new Map<string, number>();
-        let prevRating = typeof player.initialPoints === 'number' ? player.initialPoints : 1000;
+        const rawInitial = Number(player.initialPoints);
+        let prevRating = (!isNaN(rawInitial) && rawInitial < 10 && rawInitial > 0) ? rawInitial : 3.0;
         
-        // If history has initial entry before any matches? No, matches drive history.
-        // We iterate chronologically to find diffs.
         fullHistory.forEach(day => {
             const newRating = day.ratings[currentPid];
             if (newRating !== undefined) {
                 const diff = newRating - prevRating;
-                if (Math.abs(diff) > 0.001) {
+                if (Math.abs(diff) > 0.0001) {
                     ratingDeltaMap.set(day.date, diff);
                 }
                 prevRating = newRating;
             }
         });
 
-        // 2. Identify Tournament Bonuses Explicitly for Display
-        // We need to know EXACTLY when tournaments ended to pin the note.
-        const bonusNotes = new Map<string, string>(); // Date -> "Bonus Hạng 1"
-        const tournamentEndDates = new Map<string, string>(); // Month -> LastMatchDate
-
-        // Scan all matches to find the end date of each tournament month
-        // We sort matches chronologically first
-        const sortedAllMatches = [...matches].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-        sortedAllMatches.forEach(m => {
-            if (m.type === 'tournament') {
-                const month = m.date.slice(0, 7);
-                const day = m.date.split('T')[0];
-                tournamentEndDates.set(month, day); // Will overwrite until the last one remains
-            }
+        // 2. Get Match-by-Match Details
+        const matchHistory = getPlayerRatingHistory(currentPid, players, matches);
+        const matchesByDate = new Map<string, typeof matchHistory>();
+        matchHistory.forEach(item => {
+            const date = item.match.date.slice(0, 10);
+            if (!matchesByDate.has(date)) matchesByDate.set(date, []);
+            matchesByDate.get(date)!.push(item);
         });
 
-        tournamentEndDates.forEach((endDate, monthKey) => {
-            const standings = getTournamentStandings(monthKey, players, matches);
-            if (standings.length >= 3) {
-                // Check if player is in top 3
-                const rankIdx = standings.findIndex(t => t.playerIds.includes(currentPid));
-                if (rankIdx >= 0 && rankIdx <= 2) {
-                    const place = rankIdx + 1;
-                    
-                    // Calculate exact bonus to show user
-                    const N = standings.length;
-                    const S = 1 + 0.10 * (N - 5);
-                    const baseBonuses: Record<number, number> = { 1: 0.10, 2: 0.07, 3: 0.05 };
-                    const rawBonus = baseBonuses[place] * S;
-                    const bonusVal = Math.min(0.15, Math.round(rawBonus * 100) / 100);
+        // 3. Combine
+        const allDates = new Set([...ratingDeltaMap.keys(), ...matchesByDate.keys()]);
+        const result = [];
 
-                    // Set note on the TOURNAMENT END DATE, not just when player played
-                    bonusNotes.set(endDate, `Thưởng Top ${place} (+${bonusVal.toFixed(2)})`);
-                }
-            }
-        });
-
-        // 3. Standard Aggregation
-        const summary = new Map<string, { date: string, wins: number, losses: number, netPoints: number, matchCount: number, ratingChange: number, note?: string }>();
-
-        // 3a. Process Actual Matches Played
-        analysis.playerMatches.forEach(m => {
-            const dateKey = m.date.split('T')[0];
+        for (const date of allDates) {
+            const dailyChange = ratingDeltaMap.get(date) || 0;
+            const dayMatches = matchesByDate.get(date) || [];
             
-            if (!summary.has(dateKey)) {
-                summary.set(dateKey, { 
-                    date: dateKey, 
-                    wins: 0, 
-                    losses: 0, 
-                    netPoints: 0, 
-                    matchCount: 0,
-                    ratingChange: ratingDeltaMap.get(dateKey) || 0,
-                    note: bonusNotes.get(dateKey)
-                });
+            // Sort matches reverse chrono
+            dayMatches.sort((a, b) => new Date(b.match.date).getTime() - new Date(a.match.date).getTime());
+
+            let matchCount = 0;
+            let wins = 0;
+            let losses = 0;
+            let netPoints = 0;
+            let sumMatchChange = 0;
+
+            dayMatches.forEach(m => {
+                matchCount++;
+                sumMatchChange += m.change;
+                
+                const s1 = Number(m.match.score1);
+                const s2 = Number(m.match.score2);
+                const t1 = m.match.team1.map(String);
+                const isTeam1 = t1.includes(currentPid);
+                const isWin = isTeam1 ? s1 > s2 : s2 > s1;
+                
+                if (isWin) wins++; else losses++;
+                
+                if ((m.match.type || 'betting') === 'betting') {
+                    const pts = Number(m.match.rankingPoints || 50);
+                    if (new Date(m.match.date) >= new Date('2025-12-01')) {
+                        if (isWin) netPoints += pts; else netPoints -= pts;
+                    }
+                }
+            });
+
+            // Detect Bonus
+            const bonus = dailyChange - sumMatchChange;
+            let note = undefined;
+            if (Math.abs(bonus) > 0.001) {
+                note = `Thưởng/Phạt khác: ${bonus > 0 ? '+' : ''}${bonus.toFixed(4)}`;
             }
-            const day = summary.get(dateKey)!;
 
-            let s1 = Number(m.score1);
-            let s2 = Number(m.score2);
-            if (isNaN(s1)) s1 = 0; if (isNaN(s2)) s2 = 0;
-            if (s1 === s2) return;
+            result.push({
+                date,
+                matchCount,
+                wins,
+                losses,
+                netPoints,
+                ratingChange: dailyChange,
+                matches: dayMatches,
+                note
+            });
+        }
 
-            day.matchCount++;
-
-            const isTeam1 = m.team1.map(String).includes(currentPid);
-            const winner = s1 > s2 ? 1 : 2;
-            const isWin = isTeam1 ? winner === 1 : winner === 2;
-
-            const isBetting = (m.type || 'betting') === 'betting';
-            const points = (isBetting && m.rankingPoints) ? Number(m.rankingPoints) : 0;
-
-            if (isWin) {
-                day.wins++;
-                if (isBetting) day.netPoints += points;
-            } else {
-                day.losses++;
-                if (isBetting) day.netPoints -= points;
-            }
-        });
-
-        // 3b. Process Dates with ONLY Bonuses (Ghost Entries)
-        // If a player got a bonus on a day they didn't play (e.g. final day), ensure it shows up
-        bonusNotes.forEach((note, dateKey) => {
-            if (!summary.has(dateKey)) {
-                summary.set(dateKey, {
-                    date: dateKey,
-                    wins: 0,
-                    losses: 0,
-                    netPoints: 0,
-                    matchCount: 0,
-                    ratingChange: ratingDeltaMap.get(dateKey) || 0, // Should find the bonus delta here
-                    note: note
-                });
-            } else {
-                // Ensure note is attached if key existed from playing
-                const existing = summary.get(dateKey)!;
-                if (!existing.note) existing.note = note;
-            }
-        });
-
-        return Array.from(summary.values()).sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  }, [analysis.playerMatches, player.id, players, matches]);
+        return result.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  }, [player, players, matches]);
 
 
   const getNames = (ids: string[]) => ids.map(id => playerLookup.get(String(id))?.name || 'Unknown').join(' & ');
@@ -827,50 +797,116 @@ export const PlayerProfile: React.FC<PlayerProfileProps> = ({ player, players, m
                                     <tbody className="divide-y divide-slate-100">
                                         {dailySummary.length > 0 ? (
                                             dailySummary.map((day, idx) => (
-                                                <tr key={day.date} className="hover:bg-slate-50/50 transition-colors">
-                                                    <td className="px-4 py-3 font-medium text-slate-900 text-xs">
-                                                        <div className="flex flex-col gap-1">
-                                                            <div className="flex items-center gap-2">
-                                                                <Calendar className="w-4 h-4 text-slate-400" />
-                                                                {new Date(day.date).toLocaleDateString('vi-VN', {
-                                                                    weekday: 'short',
-                                                                    day: '2-digit',
-                                                                    month: '2-digit',
-                                                                    year: 'numeric'
-                                                                })}
-                                                            </div>
-                                                            {day.note && (
-                                                                <div className="flex items-center gap-1 text-[10px] text-yellow-600 bg-yellow-50 px-2 py-0.5 rounded border border-yellow-200 w-fit">
-                                                                    <Gift className="w-3 h-3" />
-                                                                    {day.note}
+                                                <React.Fragment key={day.date}>
+                                                    <tr 
+                                                        className="hover:bg-slate-50/50 transition-colors cursor-pointer group"
+                                                        onClick={() => toggleDate(day.date)}
+                                                    >
+                                                        <td className="px-4 py-3 font-medium text-slate-900 text-xs">
+                                                            <div className="flex flex-col gap-1">
+                                                                <div className="flex items-center gap-2">
+                                                                    {expandedDates.has(day.date) ? 
+                                                                        <ChevronDown className="w-4 h-4 text-slate-400" /> : 
+                                                                        <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-slate-600" />
+                                                                    }
+                                                                    <div className="flex items-center gap-2">
+                                                                        <Calendar className="w-4 h-4 text-slate-400" />
+                                                                        {new Date(day.date).toLocaleDateString('vi-VN', {
+                                                                            weekday: 'short',
+                                                                            day: '2-digit',
+                                                                            month: '2-digit',
+                                                                            year: 'numeric'
+                                                                        })}
+                                                                    </div>
                                                                 </div>
-                                                            )}
-                                                        </div>
-                                                    </td>
-                                                    <td className="px-4 py-3 text-center text-slate-600 font-bold">
-                                                        {day.matchCount}
-                                                    </td>
-                                                    <td className="px-4 py-3 text-center text-xs font-medium">
-                                                        <span className="text-green-600 text-sm font-bold">{day.wins}</span>
-                                                        <span className="mx-1 text-slate-300">-</span>
-                                                        <span className="text-red-500 text-sm font-bold">{day.losses}</span>
-                                                    </td>
-                                                    <td className="px-4 py-3 text-right">
-                                                        <span className={`px-2 py-1 rounded text-xs font-bold border ${
-                                                            day.netPoints > 0 ? 'bg-green-100 text-green-700 border-green-200' : 
-                                                            day.netPoints < 0 ? 'bg-red-50 text-red-600 border-red-100' : 
-                                                            'bg-slate-100 text-slate-500 border-slate-200'
-                                                        }`}>
-                                                            {day.netPoints > 0 ? '+' : ''}{day.netPoints}
-                                                        </span>
-                                                    </td>
-                                                    <td className="px-4 py-3 text-right">
-                                                        <div className={`flex items-center justify-end gap-1 font-mono text-xs font-bold ${day.ratingChange >= 0 ? 'text-blue-600' : 'text-orange-500'}`}>
-                                                            <Activity className="w-3 h-3 opacity-50" />
-                                                            {day.ratingChange > 0 ? '+' : ''}{day.ratingChange.toFixed(2)}
-                                                        </div>
-                                                    </td>
-                                                </tr>
+                                                                {day.note && (
+                                                                    <div className="ml-6 flex items-center gap-1 text-[10px] text-yellow-600 bg-yellow-50 px-2 py-0.5 rounded border border-yellow-200 w-fit">
+                                                                        <Gift className="w-3 h-3" />
+                                                                        {day.note}
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        </td>
+                                                        <td className="px-4 py-3 text-center text-slate-600 font-bold">
+                                                            {day.matchCount}
+                                                        </td>
+                                                        <td className="px-4 py-3 text-center text-xs font-medium">
+                                                            <span className="text-green-600 text-sm font-bold">{day.wins}</span>
+                                                            <span className="mx-1 text-slate-300">-</span>
+                                                            <span className="text-red-500 text-sm font-bold">{day.losses}</span>
+                                                        </td>
+                                                        <td className="px-4 py-3 text-right">
+                                                            <span className={`px-2 py-1 rounded text-xs font-bold border ${
+                                                                day.netPoints > 0 ? 'bg-green-100 text-green-700 border-green-200' : 
+                                                                day.netPoints < 0 ? 'bg-red-50 text-red-600 border-red-100' : 
+                                                                'bg-slate-100 text-slate-500 border-slate-200'
+                                                            }`}>
+                                                                {day.netPoints > 0 ? '+' : ''}{day.netPoints}
+                                                            </span>
+                                                        </td>
+                                                        <td className="px-4 py-3 text-right">
+                                                            <div className={`flex items-center justify-end gap-1 font-mono text-xs font-bold ${day.ratingChange >= 0 ? 'text-blue-600' : 'text-orange-500'}`}>
+                                                                <Activity className="w-3 h-3 opacity-50" />
+                                                                {day.ratingChange > 0 ? '+' : ''}{day.ratingChange.toFixed(4)}
+                                                            </div>
+                                                        </td>
+                                                    </tr>
+                                                    {expandedDates.has(day.date) && (
+                                                        <tr className="bg-slate-50/30 animate-fade-in">
+                                                            <td colSpan={5} className="px-4 py-2">
+                                                                <div className="ml-6 border-l-2 border-slate-200 pl-4 space-y-2">
+                                                                    {day.matches.map((mItem, mIdx) => {
+                                                                        const m = mItem.match;
+                                                                        const currentPid = String(player.id);
+                                                                        const t1 = m.team1.map(String);
+                                                                        const t2 = m.team2.map(String);
+                                                                        const isTeam1 = t1.includes(currentPid);
+                                                                        
+                                                                        const partnerId = (isTeam1 ? t1 : t2).find(id => id !== currentPid);
+                                                                        const partner = partnerId ? playerLookup.get(partnerId) : null;
+                                                                        
+                                                                        const opponents = (isTeam1 ? t2 : t1).map(id => playerLookup.get(id)?.name || id).join(' & ');
+                                                                        
+                                                                        const s1 = Number(m.score1);
+                                                                        const s2 = Number(m.score2);
+                                                                        const myScore = isTeam1 ? s1 : s2;
+                                                                        const oppScore = isTeam1 ? s2 : s1;
+                                                                        const isWin = myScore > oppScore;
+
+                                                                        return (
+                                                                            <div key={m.id} className="flex items-center justify-between text-xs py-1 border-b border-slate-100 last:border-0">
+                                                                                <div className="flex items-center gap-3">
+                                                                                    <span className={`font-mono font-bold w-8 text-center ${isWin ? 'text-green-600' : 'text-red-500'}`}>
+                                                                                        {myScore}-{oppScore}
+                                                                                    </span>
+                                                                                    <div className="flex flex-col">
+                                                                                        <div className="flex items-center gap-1 text-slate-700">
+                                                                                            <span className="text-slate-400">vs</span>
+                                                                                            <span className="font-medium">{opponents}</span>
+                                                                                        </div>
+                                                                                        {partner && (
+                                                                                            <div className="text-[10px] text-slate-500">
+                                                                                                với {partner.name}
+                                                                                            </div>
+                                                                                        )}
+                                                                                    </div>
+                                                                                </div>
+                                                                                <div className={`font-mono font-bold ${mItem.change >= 0 ? 'text-blue-600' : 'text-orange-500'}`}>
+                                                                                    {mItem.change > 0 ? '+' : ''}{mItem.change.toFixed(4)}
+                                                                                </div>
+                                                                            </div>
+                                                                        );
+                                                                    })}
+                                                                    {day.matches.length === 0 && day.ratingChange !== 0 && (
+                                                                         <div className="text-xs text-slate-500 italic py-1">
+                                                                             {day.note || 'Thay đổi từ bonus/phạt'}
+                                                                         </div>
+                                                                    )}
+                                                                </div>
+                                                            </td>
+                                                        </tr>
+                                                    )}
+                                                </React.Fragment>
                                             ))
                                         ) : (
                                             <tr>
