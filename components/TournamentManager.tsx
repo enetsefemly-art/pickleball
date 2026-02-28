@@ -1063,12 +1063,28 @@ const TeamMatchManager: React.FC<TournamentManagerProps> = ({
         const incUsage = (p: Player) => playerUsage.set(String(p.id), getUsage(p) + 1);
 
         for (let i = 0; i < numMatches; i++) {
-            // Re-score based on usage
+            // Re-score based on usage to ensure equal play time
             possibleMatchups.forEach(m => {
-                const usagePenalty = 
-                    getUsage(m.p1[0]) + getUsage(m.p1[1]) + 
-                    getUsage(m.p2[0]) + getUsage(m.p2[1]);
-                m.score = m.diff + (usagePenalty * 0.5); // 0.5 rating penalty per usage
+                const u1 = getUsage(m.p1[0]);
+                const u2 = getUsage(m.p1[1]);
+                const u3 = getUsage(m.p2[0]);
+                const u4 = getUsage(m.p2[1]);
+
+                // Priority 1: Minimize the maximum usage of any player in the match.
+                // This ensures we don't pick a match involving a player who has already played a lot,
+                // allowing others to catch up.
+                const maxUsage = Math.max(u1, u2, u3, u4);
+
+                // Priority 2: Minimize total usage (prefer matches where players have played less overall)
+                const totalUsage = u1 + u2 + u3 + u4;
+
+                // Priority 3: Rating balance (diff)
+                
+                // Weighting:
+                // Max Usage: Huge penalty (10000)
+                // Total Usage: Medium penalty (100)
+                // Rating Diff: Small penalty (1)
+                m.score = (maxUsage * 10000) + (totalUsage * 100) + m.diff;
             });
             
             possibleMatchups.sort((a, b) => a.score - b.score);
