@@ -70,9 +70,35 @@ export interface TournamentMatch {
   matchId?: string; 
 }
 
+// New Types for Team Match Mode
+export interface TeamGroup {
+    id: string;
+    name: string;
+    players: Player[];
+}
+
+export interface TeamMatchScheduleItem {
+    id: string;
+    group1Id: string;
+    group2Id: string;
+    pair1: [Player, Player];
+    pair2: [Player, Player];
+    score1: number | '';
+    score2: number | '';
+    isCompleted: boolean;
+    matchId?: string;
+}
+
 export interface TournamentState {
     isActive: boolean;
-    teams: Team[];
-    schedule: TournamentMatch[];
+    mode?: 'round-robin' | 'team-match'; // Default to 'round-robin' if undefined
     tournamentDate: string; // ISO String
+
+    // Round Robin Data
+    teams?: Team[];
+    schedule?: TournamentMatch[];
+
+    // Team Match Data
+    groups?: TeamGroup[];
+    groupSchedule?: TeamMatchScheduleItem[];
 }

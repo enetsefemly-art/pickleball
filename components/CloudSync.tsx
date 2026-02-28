@@ -38,7 +38,8 @@ export const CloudSync: React.FC<CloudSyncProps> = ({ players, matches, onDataLo
       
       addLog(`Gói tin: ${players.length} người, ${matches.length} trận.`);
       if (currentTournament && currentTournament.isActive) {
-          addLog(`Kèm theo: Giải đấu đang diễn ra (${currentTournament.teams.length} đội).`);
+          const teamCount = (currentTournament.teams || []).length + (currentTournament.groups || []).length;
+          addLog(`Kèm theo: Giải đấu đang diễn ra (${teamCount} đội/nhóm).`);
       } else {
           addLog("Không có giải đấu nào đang diễn ra.");
       }
@@ -78,7 +79,8 @@ export const CloudSync: React.FC<CloudSyncProps> = ({ players, matches, onDataLo
       addLog(`✅ Đã nhận: ${data.players.length} người chơi, ${data.matches.length} trận.`);
       
       if (data.tournament && data.tournament.isActive) {
-          addLog(`🏆 Đã tải về: Giải đấu tháng ${data.tournament.tournamentDate.slice(5,7)} (${data.tournament.schedule.length} trận).`);
+          const matchCount = (data.tournament.schedule || []).length + (data.tournament.groupSchedule || []).length;
+          addLog(`🏆 Đã tải về: Giải đấu tháng ${data.tournament.tournamentDate.slice(5,7)} (${matchCount} trận).`);
       } else {
           addLog("ℹ️ Cloud không có giải đấu nào đang chạy.");
       }

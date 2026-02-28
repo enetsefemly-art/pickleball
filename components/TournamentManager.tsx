@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Player, Match, Team, TournamentMatch, TournamentState } from '../types';
-import { Trophy, Users, Play, Save, Trash2, Calendar, Shield, Swords, Flag, Sparkles, ArrowLeft, ArrowRightLeft, Clock, Timer, Hourglass, CheckCircle2, Edit3, UploadCloud, AlertCircle, CheckSquare, Square, ChevronUp, ChevronDown } from 'lucide-react';
+import { Player, Match, Team, TournamentMatch, TournamentState, TeamGroup, TeamMatchScheduleItem } from '../types';
+import { Trophy, Users, Play, Save, Trash2, Calendar, Shield, Swords, Flag, Sparkles, ArrowLeft, ArrowRightLeft, Clock, Timer, Hourglass, CheckCircle2, Edit3, UploadCloud, AlertCircle, CheckSquare, Square, ChevronUp, ChevronDown, Shuffle, UserPlus, UserMinus } from 'lucide-react';
 import { Card } from './Card';
 import { getTournamentStandings } from '../services/storageService';
 
@@ -81,7 +81,7 @@ const CountdownTimer = ({ targetDate }: { targetDate: string }) => {
     );
 };
 
-export const TournamentManager: React.FC<TournamentManagerProps> = ({ 
+export const RoundRobinManager: React.FC<TournamentManagerProps> = ({ 
     players, 
     matches = [], 
     tournamentData, 
@@ -117,9 +117,12 @@ export const TournamentManager: React.FC<TournamentManagerProps> = ({
   useEffect(() => {
       if (tournamentData && tournamentData.isActive) {
           setActiveTab('play');
-          setManualTeams(tournamentData.teams);
+          setManualTeams(tournamentData.teams || []);
       } else {
           setActiveTab('setup');
+          // Clear local state when tournament ends or is inactive
+          setManualTeams([]);
+          setSelectedPlayerIds([]);
       }
   }, [tournamentData]);
 
@@ -319,7 +322,7 @@ export const TournamentManager: React.FC<TournamentManagerProps> = ({
       if (!tournamentData) return;
       const val = value === '' ? '' : parseInt(value);
       
-      const newSchedule = tournamentData.schedule.map(m => {
+      const newSchedule = (tournamentData.schedule || []).map(m => {
           if (m.id === matchId) {
               return { ...m, [team === 1 ? 'score1' : 'score2']: val };
           }
@@ -344,11 +347,12 @@ export const TournamentManager: React.FC<TournamentManagerProps> = ({
           }
 
           // Perform Swap
-          const sourceIdx = tournamentData.schedule.findIndex(m => m.id === swapMatchId);
-          const targetIdx = tournamentData.schedule.findIndex(m => m.id === targetMatchId);
+          const currentSchedule = tournamentData.schedule || [];
+          const sourceIdx = currentSchedule.findIndex(m => m.id === swapMatchId);
+          const targetIdx = currentSchedule.findIndex(m => m.id === targetMatchId);
 
           if (sourceIdx !== -1 && targetIdx !== -1) {
-              const newSchedule = [...tournamentData.schedule];
+              const newSchedule = [...currentSchedule];
               
               // Swap properties: displayTurn and court. 
               // This effectively swaps their "Slot" in the UI.
@@ -389,8 +393,8 @@ export const TournamentManager: React.FC<TournamentManagerProps> = ({
   const saveMatchResult = (match: TournamentMatch) => {
       if (match.score1 === '' || match.score2 === '') return;
       
-      const t1 = tournamentData?.teams.find(t => t.id === match.team1Id);
-      const t2 = tournamentData?.teams.find(t => t.id === match.team2Id);
+      const t1 = (tournamentData?.teams || []).find(t => t.id === match.team1Id);
+      const t2 = (tournamentData?.teams || []).find(t => t.id === match.team2Id);
       if (!t1 || !t2 || !t1.player1 || !t1.player2 || !t2.player1 || !t2.player2) return;
 
       const s1 = Number(match.score1);
@@ -413,7 +417,7 @@ export const TournamentManager: React.FC<TournamentManagerProps> = ({
       onSaveMatches([matchPayload]);
 
       // Mark as completed in tournament state and sync
-      const newSchedule = tournamentData!.schedule.map(m => 
+      const newSchedule = (tournamentData!.schedule || []).map(m => 
           m.id === match.id ? { ...m, isCompleted: true } : m
       );
       onUpdateTournament({ ...tournamentData!, schedule: newSchedule });
@@ -423,11 +427,11 @@ export const TournamentManager: React.FC<TournamentManagerProps> = ({
   const liveStandings = useMemo(() => {
       if (!tournamentData) return [];
       
-      const tempMatches: Match[] = tournamentData.schedule
+      const tempMatches: Match[] = (tournamentData.schedule || [])
         .filter(m => m.isCompleted && m.score1 !== '' && m.score2 !== '')
         .map(m => {
-            const t1 = tournamentData.teams.find(t => t.id === m.team1Id);
-            const t2 = tournamentData.teams.find(t => t.id === m.team2Id);
+            const t1 = (tournamentData.teams || []).find(t => t.id === m.team1Id);
+            const t2 = (tournamentData.teams || []).find(t => t.id === m.team2Id);
             return {
                 id: m.id,
                 type: 'tournament',
@@ -660,7 +664,7 @@ export const TournamentManager: React.FC<TournamentManagerProps> = ({
   if (!tournamentData) return null;
 
   const getTeamName = (teamId: string) => {
-      const t = tournamentData.teams.find(x => x.id === teamId);
+      const t = (tournamentData.teams || []).find(x => x.id === teamId);
       return t ? t.name : '???';
   };
 
@@ -670,7 +674,7 @@ export const TournamentManager: React.FC<TournamentManagerProps> = ({
 
   // Group matches by Display Turn
   const turns = new Map<number, TournamentMatch[]>();
-  tournamentData.schedule.forEach(m => {
+  (tournamentData.schedule || []).forEach(m => {
       const turn = m.displayTurn || 1;
       if (!turns.has(turn)) turns.set(turn, []);
       turns.get(turn)!.push(m);
@@ -906,4 +910,622 @@ export const TournamentManager: React.FC<TournamentManagerProps> = ({
           </div>
       </div>
   );
+};
+
+// --- TEAM MATCH MANAGER (New Feature) ---
+const TeamMatchManager: React.FC<TournamentManagerProps> = ({
+    players,
+    tournamentData,
+    onUpdateTournament,
+    onSaveMatches
+}) => {
+    const [step, setStep] = useState<'setup' | 'teams' | 'schedule' | 'play'>('setup');
+    
+    // Setup State
+    const [selectedPlayerIds, setSelectedPlayerIds] = useState<string[]>([]);
+    const [numTeams, setNumTeams] = useState(2);
+    const [showAllPlayers, setShowAllPlayers] = useState(false);
+    
+    // Teams State
+    const [groups, setGroups] = useState<TeamGroup[]>([]);
+    const [swapSource, setSwapSource] = useState<{ groupId: string, playerId: string } | null>(null);
+    
+    // Schedule State
+    const [numMatches, setNumMatches] = useState(10);
+    const [schedule, setSchedule] = useState<TeamMatchScheduleItem[]>([]);
+    
+    // Play State
+    // const [activeTab, setActiveTab] = useState<'matches' | 'standings'>('matches'); // Unused for now
+
+    // Sync from props
+    useEffect(() => {
+        if (tournamentData?.isActive && tournamentData.mode === 'team-match') {
+            if (step === 'setup') {
+                setStep('play');
+            }
+            setGroups(tournamentData.groups || []);
+            setSchedule(tournamentData.groupSchedule || []);
+        } else if (!tournamentData?.isActive) {
+            setStep('setup');
+            // Clear local state when tournament ends or is inactive
+            setGroups([]);
+            setSchedule([]);
+            setSelectedPlayerIds([]);
+        }
+    }, [tournamentData]);
+
+    const activePlayers = useMemo(() => {
+        let list = players;
+        if (!showAllPlayers) {
+            list = list.filter(p => p.isActive !== false);
+        }
+        return list.sort((a, b) => a.name.localeCompare(b.name));
+    }, [players, showAllPlayers]);
+
+    // --- ACTIONS ---
+
+    const handleSwapPlayer = (targetGroupId: string, targetPlayerId: string) => {
+        if (!swapSource) {
+            setSwapSource({ groupId: targetGroupId, playerId: targetPlayerId });
+            return;
+        }
+
+        // Perform Swap
+        const newGroups = [...groups];
+        const sourceGroup = newGroups.find(g => g.id === swapSource.groupId);
+        const targetGroup = newGroups.find(g => g.id === targetGroupId);
+
+        if (sourceGroup && targetGroup) {
+            const sourcePlayerIdx = sourceGroup.players.findIndex(p => String(p.id) === swapSource.playerId);
+            const targetPlayerIdx = targetGroup.players.findIndex(p => String(p.id) === targetPlayerId);
+
+            if (sourcePlayerIdx !== -1 && targetPlayerIdx !== -1) {
+                const temp = sourceGroup.players[sourcePlayerIdx];
+                sourceGroup.players[sourcePlayerIdx] = targetGroup.players[targetPlayerIdx];
+                targetGroup.players[targetPlayerIdx] = temp;
+                setGroups(newGroups);
+            }
+        }
+        setSwapSource(null);
+    };
+
+    const handleSplitTeams = () => {
+        if (selectedPlayerIds.length < numTeams) {
+            alert("Số lượng người chơi phải lớn hơn số đội!");
+            return;
+        }
+
+        const pool = selectedPlayerIds.map(id => players.find(p => String(p.id) === id)!).sort((a, b) => (b.tournamentRating || 3.0) - (a.tournamentRating || 3.0));
+        
+        const newGroups: TeamGroup[] = Array.from({ length: numTeams }, (_, i) => ({
+            id: `group_${Date.now()}_${i}`,
+            name: `Team ${i + 1}`,
+            players: []
+        }));
+
+        // Snake Draft Distribution for Balance
+        pool.forEach((p, idx) => {
+            const round = Math.floor(idx / numTeams);
+            const isEvenRound = round % 2 === 0;
+            const teamIdx = isEvenRound ? (idx % numTeams) : (numTeams - 1 - (idx % numTeams));
+            newGroups[teamIdx].players.push(p);
+        });
+
+        setGroups(newGroups);
+        setStep('teams');
+    };
+
+    const handleGenerateSchedule = () => {
+        if (groups.length < 2) return;
+        
+        // Clear previous schedule to ensure fresh generation
+        setSchedule([]);
+
+        // Simplified for 2 teams for now, as per request "chia 2 team"
+        // If more teams, we can rotate pairs.
+        
+        const g1 = groups[0];
+        const g2 = groups[1];
+        
+        // Generate all possible pairs for each group
+        const getPairs = (groupPlayers: Player[]) => {
+            const pairs: [Player, Player][] = [];
+            for (let i = 0; i < groupPlayers.length; i++) {
+                for (let j = i + 1; j < groupPlayers.length; j++) {
+                    pairs.push([groupPlayers[i], groupPlayers[j]]);
+                }
+            }
+            return pairs;
+        };
+
+        const pairs1 = getPairs(g1.players);
+        const pairs2 = getPairs(g2.players);
+
+        const possibleMatchups: { p1: [Player, Player], p2: [Player, Player], diff: number, score: number }[] = [];
+
+        pairs1.forEach(p1 => {
+            pairs2.forEach(p2 => {
+                const r1 = (p1[0].tournamentRating || 3.0) + (p1[1].tournamentRating || 3.0);
+                const r2 = (p2[0].tournamentRating || 3.0) + (p2[1].tournamentRating || 3.0);
+                const diff = Math.abs(r1 - r2);
+                possibleMatchups.push({ p1, p2, diff, score: diff });
+            });
+        });
+
+        // Sort by balance (diff)
+        possibleMatchups.sort((a, b) => a.diff - b.diff);
+
+        // Select best N matches with diversity penalty
+        const selectedMatches: TeamMatchScheduleItem[] = [];
+        const playerUsage = new Map<string, number>();
+        
+        const getUsage = (p: Player) => playerUsage.get(String(p.id)) || 0;
+        const incUsage = (p: Player) => playerUsage.set(String(p.id), getUsage(p) + 1);
+
+        for (let i = 0; i < numMatches; i++) {
+            // Re-score based on usage
+            possibleMatchups.forEach(m => {
+                const usagePenalty = 
+                    getUsage(m.p1[0]) + getUsage(m.p1[1]) + 
+                    getUsage(m.p2[0]) + getUsage(m.p2[1]);
+                m.score = m.diff + (usagePenalty * 0.5); // 0.5 rating penalty per usage
+            });
+            
+            possibleMatchups.sort((a, b) => a.score - b.score);
+            
+            if (possibleMatchups.length === 0) break;
+
+            const best = possibleMatchups.shift()!; // Remove selected
+            
+            // Add to schedule
+            selectedMatches.push({
+                id: `tm_${Date.now()}_${i}`,
+                group1Id: g1.id,
+                group2Id: g2.id,
+                pair1: best.p1,
+                pair2: best.p2,
+                score1: '',
+                score2: '',
+                isCompleted: false
+            });
+
+            // Update usage
+            incUsage(best.p1[0]); incUsage(best.p1[1]);
+            incUsage(best.p2[0]); incUsage(best.p2[1]);
+        }
+
+        setSchedule(selectedMatches);
+        setStep('schedule');
+    };
+
+    const handleStartTournament = () => {
+        const newState: TournamentState = {
+            isActive: true,
+            mode: 'team-match',
+            tournamentDate: new Date().toISOString(),
+            groups: groups,
+            groupSchedule: schedule
+        };
+        onUpdateTournament(newState);
+        setStep('play');
+    };
+
+    const handleUpdateScore = (matchId: string, team: 1 | 2, val: string) => {
+        const newSchedule = schedule.map(m => {
+            if (m.id === matchId) {
+                return { ...m, [team === 1 ? 'score1' : 'score2']: val === '' ? '' : Number(val) };
+            }
+            return m;
+        });
+        setSchedule(newSchedule);
+        
+        // If active, sync
+        if (step === 'play' && tournamentData) {
+            onUpdateTournament({ ...tournamentData, groupSchedule: newSchedule });
+        }
+    };
+
+    const handleSaveMatch = (match: TeamMatchScheduleItem) => {
+        if (match.score1 === '' || match.score2 === '') return;
+        
+        const s1 = Number(match.score1);
+        const s2 = Number(match.score2);
+        
+        const payload = {
+            id: match.matchId, // Might be undefined, will be generated
+            type: 'tournament' as const,
+            date: tournamentData?.tournamentDate || new Date().toISOString(),
+            team1: [String(match.pair1[0].id), String(match.pair1[1].id)],
+            team2: [String(match.pair2[0].id), String(match.pair2[1].id)],
+            score1: s1,
+            score2: s2,
+            winner: s1 > s2 ? 1 : 2 as 1 | 2,
+            rankingPoints: 0
+        };
+
+        onSaveMatches([payload]);
+
+        const newSchedule = schedule.map(m => 
+            m.id === match.id ? { ...m, isCompleted: true } : m
+        );
+        setSchedule(newSchedule);
+        if (step === 'play' && tournamentData) {
+            onUpdateTournament({ ...tournamentData, groupSchedule: newSchedule });
+        }
+    };
+
+    const handleEndTournament = () => {
+        if (confirm("Kết thúc giải đấu?")) {
+            onUpdateTournament(null);
+        }
+    };
+
+    // --- RENDER HELPERS ---
+    const getGroupRating = (g: TeamGroup) => g.players.reduce((sum, p) => sum + (p.tournamentRating || 3.0), 0);
+
+    if (step === 'setup') {
+        const isAllSelected = activePlayers.every(p => selectedPlayerIds.includes(String(p.id)));
+        return (
+            <div className="space-y-6 animate-fade-in">
+                <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                    <h2 className="text-xl font-black text-slate-800 mb-4 flex items-center gap-2">
+                        <Users className="w-6 h-6 text-indigo-600" /> CHỌN NGƯỜI CHƠI & CHIA ĐỘI
+                    </h2>
+                    <div className="flex items-center gap-4 mb-6">
+                        <div className="flex items-center gap-2">
+                            <label className="text-sm font-bold text-slate-600">Số đội:</label>
+                            <input 
+                                type="number" min={2} max={4} 
+                                value={numTeams} onChange={e => setNumTeams(Number(e.target.value))}
+                                className="w-16 p-2 border rounded font-bold text-center"
+                            />
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <input 
+                                type="checkbox" 
+                                id="showAllPlayers"
+                                checked={showAllPlayers}
+                                onChange={e => setShowAllPlayers(e.target.checked)}
+                                className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                            />
+                            <label htmlFor="showAllPlayers" className="text-xs font-bold text-slate-500 cursor-pointer select-none">
+                                Hiện cả người ẩn
+                            </label>
+                        </div>
+                        <button 
+                            onClick={handleSplitTeams}
+                            disabled={selectedPlayerIds.length < numTeams}
+                            className="px-6 py-2 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 disabled:opacity-50 ml-auto"
+                        >
+                            Chia Đội Ngay
+                        </button>
+                    </div>
+                </div>
+
+                <Card title={
+                    <div className="flex justify-between items-center">
+                        <span>Danh Sách ({activePlayers.length})</span>
+                        <button onClick={() => setSelectedPlayerIds(isAllSelected ? [] : activePlayers.map(p => String(p.id)))} className="text-xs font-bold text-indigo-600 bg-indigo-50 px-2 py-1 rounded">
+                            {isAllSelected ? 'Bỏ chọn' : 'Chọn tất cả'}
+                        </button>
+                    </div>
+                }>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 p-2 max-h-[400px] overflow-y-auto">
+                        {activePlayers.map(p => (
+                            <div 
+                                key={p.id}
+                                onClick={() => setSelectedPlayerIds(prev => prev.includes(String(p.id)) ? prev.filter(id => id !== String(p.id)) : [...prev, String(p.id)])}
+                                className={`p-2 border rounded cursor-pointer flex items-center gap-2 ${selectedPlayerIds.includes(String(p.id)) ? 'bg-indigo-50 border-indigo-500' : 'hover:bg-slate-50'}`}
+                            >
+                                <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold ${selectedPlayerIds.includes(String(p.id)) ? 'bg-indigo-500 text-white' : 'bg-slate-200'}`}>
+                                    {p.name.charAt(0)}
+                                </div>
+                                <div className="truncate text-xs font-bold">{p.name}</div>
+                            </div>
+                        ))}
+                    </div>
+                </Card>
+            </div>
+        );
+    }
+
+    if (step === 'teams') {
+        return (
+            <div className="space-y-6 animate-fade-in">
+                <div className="flex justify-between items-center bg-white p-4 rounded-xl shadow-sm">
+                    <button onClick={() => setStep('setup')} className="text-slate-500 font-bold text-sm hover:text-slate-800 flex items-center gap-1"><ArrowLeft className="w-4 h-4"/> Quay lại</button>
+                    <button onClick={handleGenerateSchedule} className="px-6 py-2 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 flex items-center gap-2">
+                        Tiếp Tục: Xếp Lịch <Play className="w-4 h-4" />
+                    </button>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {groups.map((g) => (
+                        <Card key={g.id} title={
+                            <div className="flex justify-between">
+                                <span>{g.name}</span>
+                                <span className="text-xs bg-slate-100 px-2 py-1 rounded text-slate-500">∑ Rating: {getGroupRating(g).toFixed(2)}</span>
+                            </div>
+                        }>
+                            <div className="p-2 space-y-1">
+                                {g.players.map(p => (
+                                    <div 
+                                        key={p.id} 
+                                        onClick={() => handleSwapPlayer(g.id, String(p.id))}
+                                        className={`flex justify-between text-sm p-2 border-b last:border-0 cursor-pointer hover:bg-slate-50 transition-colors ${
+                                            swapSource?.playerId === String(p.id) ? 'bg-orange-50 border-orange-200 ring-1 ring-orange-300' : ''
+                                        }`}
+                                    >
+                                        <div className="flex items-center gap-2">
+                                            {swapSource?.playerId === String(p.id) && <ArrowRightLeft className="w-3 h-3 text-orange-500 animate-pulse" />}
+                                            <span>{p.name}</span>
+                                        </div>
+                                        <span className="font-mono text-slate-400">{(p.tournamentRating||3.0).toFixed(2)}</span>
+                                    </div>
+                                ))}
+                            </div>
+                            {swapSource && swapSource.groupId !== g.id && (
+                                <div className="p-2 bg-yellow-50 text-center text-xs text-yellow-700 font-bold border-t border-yellow-100 animate-pulse">
+                                    Bấm vào người chơi để đổi
+                                </div>
+                            )}
+                        </Card>
+                    ))}
+                </div>
+                <div className="text-center text-xs text-slate-400 italic mt-4">
+                    * Bấm vào tên người chơi để đổi chỗ giữa các đội
+                </div>
+            </div>
+        );
+    }
+
+    if (step === 'schedule') {
+        return (
+            <div className="space-y-6 animate-fade-in">
+                <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                    <div className="flex justify-between items-center mb-4">
+                        <h2 className="text-xl font-black text-slate-800">XẾP LỊCH THI ĐẤU</h2>
+                        <button onClick={() => setStep('teams')} className="text-slate-500 font-bold text-sm hover:text-slate-800 flex items-center gap-1">
+                            <ArrowLeft className="w-4 h-4"/> Quay lại chia đội
+                        </button>
+                    </div>
+                    <div className="flex items-center gap-4 mb-4">
+                        <div className="flex items-center gap-2">
+                            <label className="text-sm font-bold text-slate-600">Số trận muốn tạo:</label>
+                            <input 
+                                type="number" min={1} max={50} 
+                                value={numMatches} onChange={e => setNumMatches(Number(e.target.value))}
+                                className="w-20 p-2 border rounded font-bold text-center"
+                            />
+                        </div>
+                        <button 
+                            onClick={handleGenerateSchedule}
+                            className="px-6 py-2 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700"
+                        >
+                            Tạo Lịch Đấu
+                        </button>
+                    </div>
+                </div>
+
+                {schedule.length > 0 && (
+                    <div className="space-y-4">
+                        <div className="flex justify-between items-center">
+                            <h3 className="font-bold text-slate-700">Dự kiến: {schedule.length} trận</h3>
+                            <button onClick={handleStartTournament} className="px-6 py-2 bg-green-600 text-white font-bold rounded-lg hover:bg-green-700 shadow-md animate-bounce">
+                                BẮT ĐẦU GIẢI ĐẤU
+                            </button>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            {schedule.map((m, idx) => (
+                                <div key={m.id} className="bg-white p-3 rounded-lg border border-slate-200 flex justify-between items-center">
+                                    <div className="text-xs font-bold text-slate-400 w-6">#{idx+1}</div>
+                                    <div className="flex-1 text-right pr-2">
+                                        <div className="text-sm font-bold text-indigo-700">{m.pair1[0].name} & {m.pair1[1].name}</div>
+                                        <div className="text-[10px] text-slate-400">{(m.pair1[0].tournamentRating||3)+(m.pair1[1].tournamentRating||3)}</div>
+                                    </div>
+                                    <div className="px-2 text-slate-300 font-bold">VS</div>
+                                    <div className="flex-1 pl-2">
+                                        <div className="text-sm font-bold text-orange-700">{m.pair2[0].name} & {m.pair2[1].name}</div>
+                                        <div className="text-[10px] text-slate-400">{(m.pair2[0].tournamentRating||3)+(m.pair2[1].tournamentRating||3)}</div>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
+            </div>
+        );
+    }
+
+    // PLAY MODE
+    const g1 = groups[0];
+    const g2 = groups[1];
+    
+    // Calculate Score
+    let score1 = 0, score2 = 0;
+    schedule.forEach(m => {
+        if (m.isCompleted) {
+            if (Number(m.score1) > Number(m.score2)) score1++;
+            else if (Number(m.score2) > Number(m.score1)) score2++;
+        }
+    });
+
+    return (
+        <div className="space-y-6 animate-fade-in">
+            {/* Header / Scoreboard */}
+            <div className="bg-slate-900 text-white p-6 rounded-xl shadow-lg flex justify-between items-center">
+                <div className="text-center flex-1">
+                    <h2 className="text-2xl font-black text-indigo-400">{g1?.name}</h2>
+                    <div className="text-5xl font-black mt-2">{score1}</div>
+                </div>
+                <div className="text-slate-500 font-black text-2xl">VS</div>
+                <div className="text-center flex-1">
+                    <h2 className="text-2xl font-black text-orange-400">{g2?.name}</h2>
+                    <div className="text-5xl font-black mt-2">{score2}</div>
+                </div>
+            </div>
+
+            <div className="flex justify-between items-center">
+                <div className="flex gap-2">
+                    <button 
+                        onClick={() => setStep('schedule')} 
+                        className="px-3 py-1 bg-slate-100 text-slate-600 text-xs font-bold rounded hover:bg-slate-200 flex items-center gap-1 border border-slate-300"
+                    >
+                        <ArrowLeft className="w-3 h-3"/> Quay lại
+                    </button>
+                     {/* Save Button for Manual Sync */}
+                    <button 
+                        onClick={() => onUpdateTournament({ ...tournamentData, groupSchedule: schedule })}
+                        className="px-3 py-1 bg-blue-600 text-white text-xs font-bold rounded hover:bg-blue-700 flex items-center gap-1 shadow-sm"
+                        title="Lưu trạng thái hiện tại lên Cloud"
+                    >
+                        <Save className="w-3 h-3" /> Lưu Bảng Điểm
+                    </button>
+                </div>
+                <button onClick={handleEndTournament} className="text-red-500 font-bold text-xs hover:underline flex items-center gap-1">
+                    <Flag className="w-3 h-3"/> Kết thúc giải
+                </button>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4">
+                {schedule.map((m) => (
+                    <div key={m.id} className={`bg-white border rounded-xl p-4 shadow-sm ${m.isCompleted ? 'border-green-200 bg-green-50/10' : 'border-slate-200'}`}>
+                        <div className="flex items-center justify-between gap-4">
+                            <div className="flex-1 text-right">
+                                <div className="font-bold text-slate-800">{m.pair1[0].name} & {m.pair1[1].name}</div>
+                            </div>
+                            
+                            <div className="flex items-center gap-2">
+                                <input 
+                                    type="number" value={m.score1} onChange={e => handleUpdateScore(m.id, 1, e.target.value)}
+                                    disabled={m.isCompleted}
+                                    className={`w-12 h-10 text-center font-bold border rounded ${m.isCompleted ? 'bg-transparent border-transparent' : 'bg-slate-50'}`}
+                                />
+                                <span className="text-slate-300 font-bold">:</span>
+                                <input 
+                                    type="number" value={m.score2} onChange={e => handleUpdateScore(m.id, 2, e.target.value)}
+                                    disabled={m.isCompleted}
+                                    className={`w-12 h-10 text-center font-bold border rounded ${m.isCompleted ? 'bg-transparent border-transparent' : 'bg-slate-50'}`}
+                                />
+                            </div>
+
+                            <div className="flex-1">
+                                <div className="font-bold text-slate-800">{m.pair2[0].name} & {m.pair2[1].name}</div>
+                            </div>
+                        </div>
+                        
+                        {!m.isCompleted && m.score1 !== '' && m.score2 !== '' && (
+                            <div className="mt-3 text-center">
+                                <button onClick={() => handleSaveMatch(m)} className="px-4 py-1 bg-slate-900 text-white text-xs font-bold rounded hover:bg-slate-800">
+                                    Xác nhận
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+};
+
+export const TournamentManager: React.FC<TournamentManagerProps> = (props) => {
+    const { tournamentData, onUpdateTournament } = props;
+    const [activeTab, setActiveTab] = useState<'round-robin' | 'team-match'>('round-robin');
+    const [resetKey, setResetKey] = useState(0);
+
+    // Sync active tab with active tournament mode
+    useEffect(() => {
+        if (tournamentData?.isActive) {
+            setActiveTab(tournamentData.mode || 'round-robin');
+        }
+    }, [tournamentData]);
+
+    const handleTabChange = (tab: 'round-robin' | 'team-match') => {
+        if (tournamentData?.isActive && tournamentData.mode !== tab) {
+            // Prevent switching if a tournament is active in another mode
+            // Or allow switching but show a "View Only" or "Blocked" state?
+            // The user request implies they want to see both tabs.
+            // Let's allow switching, but the content of the inactive tab will need to handle the "Active elsewhere" state.
+        }
+        setActiveTab(tab);
+    };
+
+    return (
+        <div className="space-y-6">
+            {/* Tab Navigation */}
+            <div className="flex border-b border-slate-200 mb-6">
+                <button
+                    onClick={() => handleTabChange('round-robin')}
+                    className={`flex-1 py-3 text-sm font-bold uppercase tracking-wider border-b-2 transition-colors ${
+                        activeTab === 'round-robin'
+                            ? 'border-pickle-500 text-pickle-600'
+                            : 'border-transparent text-slate-400 hover:text-slate-600 hover:border-slate-300'
+                    }`}
+                >
+                    Vòng Tròn Xếp Hạng
+                </button>
+                <button
+                    onClick={() => handleTabChange('team-match')}
+                    className={`flex-1 py-3 text-sm font-bold uppercase tracking-wider border-b-2 transition-colors ${
+                        activeTab === 'team-match'
+                            ? 'border-indigo-500 text-indigo-600'
+                            : 'border-transparent text-slate-400 hover:text-slate-600 hover:border-slate-300'
+                    }`}
+                >
+                    Tournament (Team vs Team)
+                </button>
+            </div>
+
+            {/* Content Area */}
+            <div className="min-h-[400px]">
+                {activeTab === 'round-robin' && (
+                    <>
+                        {tournamentData?.isActive && tournamentData.mode === 'team-match' ? (
+                            <div className="flex flex-col items-center justify-center p-12 text-center bg-slate-50 rounded-xl border border-slate-200 border-dashed">
+                                <div className="p-4 bg-indigo-100 rounded-full mb-4">
+                                    <Swords className="w-8 h-8 text-indigo-600" />
+                                </div>
+                                <h3 className="text-lg font-bold text-slate-700 mb-2">Đang diễn ra giải đấu Team vs Team</h3>
+                                <p className="text-slate-500 text-sm max-w-md mx-auto mb-6">
+                                    Bạn cần kết thúc giải đấu hiện tại bên tab "Tournament" trước khi bắt đầu một giải đấu Vòng Tròn mới.
+                                </p>
+                                <button 
+                                    onClick={() => setActiveTab('team-match')}
+                                    className="px-4 py-2 bg-indigo-600 text-white text-sm font-bold rounded-lg hover:bg-indigo-700"
+                                >
+                                    Đi tới giải đấu đang chạy
+                                </button>
+                            </div>
+                        ) : (
+                            <RoundRobinManager key={`rr-${resetKey}`} {...props} />
+                        )}
+                    </>
+                )}
+
+                {activeTab === 'team-match' && (
+                    <>
+                        {tournamentData?.isActive && tournamentData.mode === 'round-robin' ? (
+                            <div className="flex flex-col items-center justify-center p-12 text-center bg-slate-50 rounded-xl border border-slate-200 border-dashed">
+                                <div className="p-4 bg-pickle-100 rounded-full mb-4">
+                                    <Trophy className="w-8 h-8 text-pickle-600" />
+                                </div>
+                                <h3 className="text-lg font-bold text-slate-700 mb-2">Đang diễn ra giải đấu Vòng Tròn</h3>
+                                <p className="text-slate-500 text-sm max-w-md mx-auto mb-6">
+                                    Bạn cần kết thúc giải đấu hiện tại bên tab "Vòng Tròn Xếp Hạng" trước khi bắt đầu một giải đấu Team vs Team mới.
+                                </p>
+                                <button 
+                                    onClick={() => setActiveTab('round-robin')}
+                                    className="px-4 py-2 bg-pickle-600 text-white text-sm font-bold rounded-lg hover:bg-pickle-700"
+                                >
+                                    Đi tới giải đấu đang chạy
+                                </button>
+                            </div>
+                        ) : (
+                            <TeamMatchManager key={`tm-${resetKey}`} {...props} />
+                        )}
+                    </>
+                )}
+            </div>
+        </div>
+    );
 };
