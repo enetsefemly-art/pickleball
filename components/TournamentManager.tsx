@@ -1161,7 +1161,11 @@ const TeamMatchManager: React.FC<TournamentManagerProps> = ({
     };
 
     // --- RENDER HELPERS ---
-    const getGroupRating = (g: TeamGroup) => g.players.reduce((sum, p) => sum + (p.tournamentRating || 3.0), 0);
+    const getGroupRating = (g: TeamGroup) => {
+        if (g.players.length === 0) return 0;
+        const sum = g.players.reduce((s, p) => s + (p.tournamentRating || 3.0), 0);
+        return sum / g.players.length;
+    };
 
     if (step === 'setup') {
         const isAllSelected = activePlayers.every(p => selectedPlayerIds.includes(String(p.id)));
@@ -1232,10 +1236,20 @@ const TeamMatchManager: React.FC<TournamentManagerProps> = ({
     if (step === 'teams') {
         return (
             <div className="space-y-6 animate-fade-in">
-                <div className="flex justify-between items-center bg-white p-4 rounded-xl shadow-sm">
-                    <button onClick={() => setStep('setup')} className="text-slate-500 font-bold text-sm hover:text-slate-800 flex items-center gap-1"><ArrowLeft className="w-4 h-4"/> Quay lại</button>
-                    <button onClick={handleGenerateSchedule} className="px-6 py-2 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 flex items-center gap-2">
-                        Tiếp Tục: Xếp Lịch <Play className="w-4 h-4" />
+                {/* Back Button */}
+                <button 
+                    onClick={() => setStep('setup')} 
+                    className="flex items-center gap-2 text-slate-500 hover:text-slate-800 transition-colors group"
+                >
+                    <div className="p-2 bg-white rounded-full shadow-sm border border-slate-200 group-hover:border-slate-300 group-hover:shadow-md transition-all">
+                        <ArrowLeft className="w-5 h-5" />
+                    </div>
+                    <span className="font-bold text-sm uppercase tracking-wide">Quay lại chọn người</span>
+                </button>
+
+                <div className="flex justify-end items-center bg-white p-4 rounded-xl shadow-sm">
+                    <button onClick={handleGenerateSchedule} className="px-6 py-3 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 flex items-center gap-2 shadow-lg shadow-indigo-200 transition-all active:scale-95">
+                        Tiếp Tục: Xếp Lịch <Play className="w-5 h-5" />
                     </button>
                 </div>
 
@@ -1244,7 +1258,7 @@ const TeamMatchManager: React.FC<TournamentManagerProps> = ({
                         <Card key={g.id} title={
                             <div className="flex justify-between">
                                 <span>{g.name}</span>
-                                <span className="text-xs bg-slate-100 px-2 py-1 rounded text-slate-500">∑ Rating: {getGroupRating(g).toFixed(2)}</span>
+                                <span className="text-xs bg-slate-100 px-2 py-1 rounded text-slate-500">Ø Rating: {getGroupRating(g).toFixed(2)}</span>
                             </div>
                         }>
                             <div className="p-2 space-y-1">
@@ -1282,12 +1296,20 @@ const TeamMatchManager: React.FC<TournamentManagerProps> = ({
     if (step === 'schedule') {
         return (
             <div className="space-y-6 animate-fade-in">
+                {/* Back Button */}
+                <button 
+                    onClick={() => setStep('teams')} 
+                    className="flex items-center gap-2 text-slate-500 hover:text-slate-800 transition-colors group"
+                >
+                    <div className="p-2 bg-white rounded-full shadow-sm border border-slate-200 group-hover:border-slate-300 group-hover:shadow-md transition-all">
+                        <ArrowLeft className="w-5 h-5" />
+                    </div>
+                    <span className="font-bold text-sm uppercase tracking-wide">Quay lại chia đội</span>
+                </button>
+
                 <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
                     <div className="flex justify-between items-center mb-4">
                         <h2 className="text-xl font-black text-slate-800">XẾP LỊCH THI ĐẤU</h2>
-                        <button onClick={() => setStep('teams')} className="text-slate-500 font-bold text-sm hover:text-slate-800 flex items-center gap-1">
-                            <ArrowLeft className="w-4 h-4"/> Quay lại chia đội
-                        </button>
                     </div>
                     <div className="flex items-center gap-4 mb-4">
                         <div className="flex items-center gap-2">
@@ -1352,6 +1374,17 @@ const TeamMatchManager: React.FC<TournamentManagerProps> = ({
 
     return (
         <div className="space-y-6 animate-fade-in">
+            {/* Back Button */}
+            <button 
+                onClick={() => setStep('schedule')} 
+                className="flex items-center gap-2 text-slate-500 hover:text-slate-800 transition-colors group"
+            >
+                <div className="p-2 bg-white rounded-full shadow-sm border border-slate-200 group-hover:border-slate-300 group-hover:shadow-md transition-all">
+                    <ArrowLeft className="w-5 h-5" />
+                </div>
+                <span className="font-bold text-sm uppercase tracking-wide">Quay lại lịch đấu</span>
+            </button>
+
             {/* Header / Scoreboard */}
             <div className="bg-slate-900 text-white p-6 rounded-xl shadow-lg flex justify-between items-center">
                 <div className="text-center flex-1">
@@ -1367,23 +1400,17 @@ const TeamMatchManager: React.FC<TournamentManagerProps> = ({
 
             <div className="flex justify-between items-center">
                 <div className="flex gap-2">
-                    <button 
-                        onClick={() => setStep('schedule')} 
-                        className="px-3 py-1 bg-slate-100 text-slate-600 text-xs font-bold rounded hover:bg-slate-200 flex items-center gap-1 border border-slate-300"
-                    >
-                        <ArrowLeft className="w-3 h-3"/> Quay lại
-                    </button>
                      {/* Save Button for Manual Sync */}
                     <button 
                         onClick={() => onUpdateTournament({ ...tournamentData, groupSchedule: schedule })}
-                        className="px-3 py-1 bg-blue-600 text-white text-xs font-bold rounded hover:bg-blue-700 flex items-center gap-1 shadow-sm"
+                        className="px-4 py-2 bg-blue-600 text-white text-sm font-bold rounded-lg hover:bg-blue-700 flex items-center gap-2 shadow-sm transition-all active:scale-95"
                         title="Lưu trạng thái hiện tại lên Cloud"
                     >
-                        <Save className="w-3 h-3" /> Lưu Bảng Điểm
+                        <Save className="w-4 h-4" /> Lưu Bảng Điểm
                     </button>
                 </div>
-                <button onClick={handleEndTournament} className="text-red-500 font-bold text-xs hover:underline flex items-center gap-1">
-                    <Flag className="w-3 h-3"/> Kết thúc giải
+                <button onClick={handleEndTournament} className="px-4 py-2 text-red-600 bg-red-50 hover:bg-red-100 border border-red-200 font-bold text-sm rounded-lg flex items-center gap-2 transition-colors">
+                    <Flag className="w-4 h-4"/> Kết thúc giải
                 </button>
             </div>
 
