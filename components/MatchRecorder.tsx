@@ -11,7 +11,7 @@ interface MatchRecorderProps {
 
 export const MatchRecorder: React.FC<MatchRecorderProps> = ({ players, onSave, onCancel }) => {
   // New State: Match Type
-  const [matchType, setMatchType] = useState<'betting' | 'tournament'>('betting');
+  const [matchType, setMatchType] = useState<'betting' | 'tournament' | 'tour'>('betting');
   
   // Mode: Doubles (4 players) or Singles (2 players)
   const [mode, setMode] = useState<'singles' | 'doubles'>('doubles');
@@ -147,6 +147,17 @@ export const MatchRecorder: React.FC<MatchRecorderProps> = ({ players, onSave, o
             >
                 <Trophy className="w-4 h-4" /> GIẢI
             </button>
+            <button
+                type="button"
+                onClick={() => setMatchType('tour')}
+                className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-md font-bold text-sm transition-all ${
+                    matchType === 'tour' 
+                    ? 'bg-purple-600 text-white shadow-sm' 
+                    : 'text-slate-500 hover:text-slate-800'
+                }`}
+            >
+                <Check className="w-4 h-4" /> TOUR
+            </button>
         </div>
 
         {/* Mode Selector */}
@@ -193,7 +204,7 @@ export const MatchRecorder: React.FC<MatchRecorderProps> = ({ players, onSave, o
                 </div>
             </div>
             
-            {matchType === 'betting' && (
+            {(matchType === 'betting' || matchType === 'tour') && (
                 <div className="flex-1">
                     <label className="block text-xs font-bold text-slate-700 mb-2 flex items-center gap-1">
                         <Award className="w-4 h-4" /> MỨC CƯỢC (ĐIỂM)

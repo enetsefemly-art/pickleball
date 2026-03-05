@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { Player, Match } from '../types';
 import { Card } from './Card';
-import { Plus, Trash2, Save, User, Users, AlertCircle, Banknote, Trophy } from 'lucide-react';
+import { Plus, Trash2, Save, User, Users, AlertCircle, Banknote, Trophy, Check } from 'lucide-react';
 
 interface BatchMatchRecorderProps {
   players: Player[];
@@ -20,7 +20,7 @@ interface BatchRow {
 }
 
 export const BatchMatchRecorder: React.FC<BatchMatchRecorderProps> = ({ players, onSave, onCancel }) => {
-  const [matchType, setMatchType] = useState<'betting' | 'tournament'>('betting');
+  const [matchType, setMatchType] = useState<'betting' | 'tournament' | 'tour'>('betting');
   const [matchDate, setMatchDate] = useState<string>(new Date().toISOString().split('T')[0]);
   
   // Initialize with one empty row
@@ -175,6 +175,17 @@ export const BatchMatchRecorder: React.FC<BatchMatchRecorderProps> = ({ players,
                         }`}
                     >
                         <Trophy className="w-3 h-3" /> GIẢI
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => setMatchType('tour')}
+                        className={`px-3 py-1.5 rounded-md font-bold text-xs flex items-center gap-1 transition-all ${
+                            matchType === 'tour' 
+                            ? 'bg-purple-600 text-white shadow-sm' 
+                            : 'text-slate-500 hover:text-slate-800'
+                        }`}
+                    >
+                        <Check className="w-3 h-3" /> TOUR
                     </button>
                 </div>
 

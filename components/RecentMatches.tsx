@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { Match, Player } from '../types';
 import { Card } from './Card';
-import { Trash2, Calendar, Filter, X, Banknote, Trophy, User, Info, AlertCircle, ArrowRight, Layers, Scale } from 'lucide-react';
+import { Trash2, Calendar, Filter, X, Banknote, Trophy, User, Info, AlertCircle, ArrowRight, Layers, Scale, Swords } from 'lucide-react';
 import { getMatchRatingDetails, RatingCalculationLog } from '../services/storageService';
 import { analyzeHistoryHandicaps } from '../services/autoMatchmaker';
 
@@ -15,7 +15,7 @@ export const RecentMatches: React.FC<RecentMatchesProps> = ({ matches, players, 
   const [selectedDate, setSelectedDate] = useState<string>('');
   const [selectedPlayerId, setSelectedPlayerId] = useState<string>('');
   
-  const [activeTab, setActiveTab] = useState<'all' | 'betting' | 'tournament'>('all');
+  const [activeTab, setActiveTab] = useState<'all' | 'betting' | 'tournament' | 'tour'>('all');
   const [handicapFilter, setHandicapFilter] = useState<'all' | 'balanced' | 'imbalanced'>('all');
   
   const [viewingLog, setViewingLog] = useState<RatingCalculationLog | null>(null);
@@ -160,6 +160,16 @@ export const RecentMatches: React.FC<RecentMatchesProps> = ({ matches, players, 
             >
                 <Trophy className="w-4 h-4" /> Giải
             </button>
+            <button
+                onClick={() => setActiveTab('tour')}
+                className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-lg font-bold text-sm transition-all whitespace-nowrap px-2 ${
+                    activeTab === 'tour' 
+                    ? 'bg-purple-600 text-white shadow-md' 
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                }`}
+            >
+                <Swords className="w-4 h-4" /> Tour
+            </button>
         </div>
 
         <Card className="h-full flex flex-col p-0 sm:p-6" classNameTitle="px-4">
@@ -249,8 +259,12 @@ export const RecentMatches: React.FC<RecentMatchesProps> = ({ matches, players, 
                                   <span className="font-mono font-bold text-slate-500">{formatDate(match.date).split(' ')[1]}</span>
                                   
                                   {/* TYPE BADGE */}
-                                  <span className={`px-1.5 py-0.5 rounded border font-bold ${(match.type || 'betting') === 'tournament' ? 'bg-blue-50 text-blue-600 border-blue-100' : 'bg-yellow-50 text-yellow-600 border-yellow-100'}`}>
-                                     {(match.type || 'betting') === 'tournament' ? 'GIẢI' : 'KÈO'}
+                                  <span className={`px-1.5 py-0.5 rounded border font-bold ${
+                                      (match.type || 'betting') === 'tournament' ? 'bg-blue-50 text-blue-600 border-blue-100' : 
+                                      (match.type === 'tour') ? 'bg-purple-50 text-purple-600 border-purple-100' :
+                                      'bg-yellow-50 text-yellow-600 border-yellow-100'
+                                  }`}>
+                                     {(match.type || 'betting') === 'tournament' ? 'GIẢI' : (match.type === 'tour' ? 'TOUR' : 'KÈO')}
                                   </span>
 
                                   {/* HANDICAP BADGE */}

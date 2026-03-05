@@ -524,16 +524,6 @@ export const Analysis: React.FC<AnalysisProps> = ({ players, matches }) => {
                                         <div className="font-bold text-green-300 text-lg leading-tight">
                                             Kèo Đồng Banh (Cân Bằng)
                                         </div>
-                                        {/* Show details for "Why" it is balanced if available */}
-                                        {aiPrediction.handicap && aiPrediction.handicap.details && (
-                                            <div className="mt-2 bg-black/30 rounded p-2 text-xs text-white/90 font-mono">
-                                                <ul className="space-y-1 list-none">
-                                                    {aiPrediction.handicap.details.map((d, i) => (
-                                                        <li key={i}>{d}</li>
-                                                    ))}
-                                                </ul>
-                                            </div>
-                                        )}
                                         <div className="text-xs text-white/80 italic mt-2">
                                             Chênh lệch trình độ nằm trong ngưỡng an toàn.
                                         </div>

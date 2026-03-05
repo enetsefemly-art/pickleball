@@ -23,7 +23,7 @@ interface PairStat {
   names: string;
   wins: number;
   matches: number;
-  type: 'betting' | 'tournament';
+  type: 'betting' | 'tournament' | 'tour';
   bettingPoints: number;
 }
 
@@ -47,7 +47,7 @@ type SortKey = 'name' | 'total' | 'balanced' | 'underdog' | 'favorite';
 
 export const DashboardStats: React.FC<DashboardStatsProps> = ({ matches, players }) => {
   // Added 'all' to allowed state types
-  const [winrateTab, setWinrateTab] = useState<'betting' | 'tournament' | 'all'>('all');
+  const [winrateTab, setWinrateTab] = useState<'betting' | 'tournament' | 'tour' | 'all'>('all');
   
   // Helper to get current month key YYYY-MM
   const currentMonthKey = new Date().toISOString().slice(0, 7);
@@ -1072,6 +1072,16 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({ matches, players
                         }`}
                     >
                         Giải
+                    </button>
+                    <button 
+                        onClick={() => setWinrateTab('tour')}
+                        className={`flex-1 sm:flex-none px-3 py-1.5 rounded-md text-[10px] sm:text-sm font-bold transition-all ${
+                            winrateTab === 'tour' 
+                            ? 'bg-indigo-600 text-white shadow-md' 
+                            : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                    >
+                        Tour
                     </button>
                 </div>
             </div>

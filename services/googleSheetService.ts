@@ -157,7 +157,16 @@ export const syncFromCloud = async (): Promise<{ players: Player[], matches: Mat
         }, 15000);
 
         if (!response.ok) {
-            throw new Error(`Lỗi kết nối HTTP: ${response.status} ${response.statusText}`);
+            let errorMessage = `Lỗi kết nối HTTP: ${response.status} ${response.statusText}`;
+            try {
+                const errorData = await response.json();
+                if (errorData.message) {
+                    errorMessage = errorData.message;
+                }
+            } catch (e) {
+                // Ignore JSON parse error, use default message
+            }
+            throw new Error(errorMessage);
         }
 
         const text = await response.text();
@@ -205,6 +214,7 @@ export const syncFromCloud = async (): Promise<{ players: Player[], matches: Mat
                     let rawScore2 = getProp(m, 'score2', 'Score2', 'Diem2');
                     let rawWinner = getProp(m, 'winner', 'Winner');
                     let rawPoints = getProp(m, 'rankingPoints', 'RankingPoints', 'DiemThuong');
+                    let rawIsHopeStar = getProp(m, 'isHopeStar', 'IsHopeStar', 'NgoiSaoHyVong');
 
                     // --- AUTO-FIX FOR SHIFTED COLUMNS (MISSING ID) ---
                     // Nếu ID lại chứa giá trị 'betting' hoặc 'tournament', tức là cột bị lệch sang trái
@@ -261,14 +271,15 @@ export const syncFromCloud = async (): Promise<{ players: Player[], matches: Mat
 
                     sanitizedMatches.push({
                         id: matchId,
-                        type: rawType === 'tournament' ? 'tournament' : 'betting', 
+                        type: (rawType === 'tournament' || rawType === 'tour') ? rawType : 'betting', 
                         date: parseDateSafe(rawDate), 
                         team1,
                         team2,
                         score1: s1,
                         score2: s2,
                         winner: winner, 
-                        rankingPoints: Number(rawPoints) || 0
+                        rankingPoints: Number(rawPoints) || 0,
+                        isHopeStar: rawIsHopeStar === true || String(rawIsHopeStar).toLowerCase() === 'true'
                     });
                 } catch (err) {
                     console.warn("Skipping invalid match row from Cloud:", m, err);

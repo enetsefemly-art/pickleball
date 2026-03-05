@@ -99,7 +99,7 @@ export const saveTournamentBonuses = (bonuses: TournamentBonus[]) => {
 
 // Helper: Resolve ties for monthly bonuses
 const resolveTiedGroup = (
-    group: { pairId: string, playerIds: string[], wins: number, losses: number, pointsScored: number, pointsConceded: number }[], 
+    group: { pairId: string, playerIds: string[], wins: number, losses: number, pointsScored: number, pointsConceded: number, points: number }[], 
     matches: Match[]
 ) => {
     if (group.length <= 1) return group;
@@ -125,6 +125,9 @@ const resolveTiedGroup = (
     });
 
     return group.sort((a, b) => {
+        // Priority 0: Total Points (Should be equal in this group, but good for safety)
+        if (b.points !== a.points) return b.points - a.points;
+
         const winsA = internalWins.get(a.pairId) || 0;
         const winsB = internalWins.get(b.pairId) || 0;
         
@@ -145,7 +148,7 @@ const resolveTiedGroup = (
 const calculateStandings = (matches: Match[]) => {
     if (matches.length === 0) return [];
 
-    const pairStats = new Map<string, { pairId: string, playerIds: string[], wins: number, losses: number, pointsScored: number, pointsConceded: number }>();
+    const pairStats = new Map<string, { pairId: string, playerIds: string[], wins: number, losses: number, pointsScored: number, pointsConceded: number, points: number }>();
     const getPairId = (ids: string[]) => ids.map(String).sort().join('-');
 
     matches.forEach(m => {
@@ -156,8 +159,8 @@ const calculateStandings = (matches: Match[]) => {
         const pId1 = getPairId(m.team1);
         const pId2 = getPairId(m.team2);
         
-        if (!pairStats.has(pId1)) pairStats.set(pId1, { pairId: pId1, playerIds: m.team1.map(String), wins: 0, losses: 0, pointsScored: 0, pointsConceded: 0 });
-        if (!pairStats.has(pId2)) pairStats.set(pId2, { pairId: pId2, playerIds: m.team2.map(String), wins: 0, losses: 0, pointsScored: 0, pointsConceded: 0 });
+        if (!pairStats.has(pId1)) pairStats.set(pId1, { pairId: pId1, playerIds: m.team1.map(String), wins: 0, losses: 0, pointsScored: 0, pointsConceded: 0, points: 0 });
+        if (!pairStats.has(pId2)) pairStats.set(pId2, { pairId: pId2, playerIds: m.team2.map(String), wins: 0, losses: 0, pointsScored: 0, pointsConceded: 0, points: 0 });
 
         const ps1 = pairStats.get(pId1)!;
         const ps2 = pairStats.get(pId2)!;
@@ -167,15 +170,30 @@ const calculateStandings = (matches: Match[]) => {
 
         if (s1 > s2) { 
             ps1.wins++; ps2.losses++;
+            // Points Logic: Hope Star = +2, Normal = +1
+            if (m.isHopeStar) {
+                ps1.points += 2;
+                ps2.points -= 1; // Hope Star Loss = -1
+            } else {
+                ps1.points += 1;
+            }
         }
         else { 
             ps2.wins++; ps1.losses++;
+            // Points Logic: Hope Star = +2, Normal = +1
+            if (m.isHopeStar) {
+                ps2.points += 2;
+                ps1.points -= 1; // Hope Star Loss = -1
+            } else {
+                ps2.points += 1;
+            }
         }
     });
 
     // --- REPLICATE SORTING LOGIC ---
     let standings = Array.from(pairStats.values());
-    standings.sort((a, b) => b.wins - a.wins);
+    // Sort by Points DESC
+    standings.sort((a, b) => b.points - a.points);
 
     let finalStandings: typeof standings = [];
     let currentGroup: typeof standings = [];
@@ -184,7 +202,8 @@ const calculateStandings = (matches: Match[]) => {
         const current = standings[i];
         const prev = currentGroup.length > 0 ? currentGroup[0] : null;
         
-        if (prev === null || current.wins === prev.wins) {
+        // Group by Points
+        if (prev === null || current.points === prev.points) {
             currentGroup.push(current);
         } else {
             finalStandings.push(...resolveTiedGroup(currentGroup, matches));
@@ -204,7 +223,7 @@ export const getTournamentStandings = (monthKey: string, players: Player[], matc
     // FIX: Removed RATING_START_DATE check so historical cups (e.g. Oct) are counted
     const validMatches = matches.filter(m => {
         return m.date.startsWith(monthKey) && 
-               m.type === 'tournament';
+               (m.type === 'tournament' || m.type === 'tour');
     });
     
     return calculateStandings(validMatches);
@@ -288,7 +307,7 @@ export const calculatePlayerStats = (players: Player[], matches: Match[]): Playe
   const tournamentMatchesByMonth = new Map<string, Match[]>();
 
   sortedMatches.forEach(m => {
-      if (m.type === 'tournament') {
+      if (m.type === 'tournament' || m.type === 'tour') {
           const month = m.date.slice(0, 7);
           if (!tournamentMatchesByMonth.has(month)) tournamentMatchesByMonth.set(month, []);
           tournamentMatchesByMonth.get(month)!.push(m);
@@ -440,7 +459,7 @@ export const getDailyRatingHistory = (players: Player[], matches: Match[]) => {
     const tournamentMatchesByMonth = new Map<string, Match[]>();
 
     sortedMatches.forEach(m => {
-        if (m.type === 'tournament') {
+        if (m.type === 'tournament' || m.type === 'tour') {
             const month = m.date.slice(0, 7);
             if (!tournamentMatchesByMonth.has(month)) tournamentMatchesByMonth.set(month, []);
             tournamentMatchesByMonth.get(month)!.push(m);
@@ -580,7 +599,7 @@ export const getPlayerRatingHistory = (playerId: string, players: Player[], matc
     const tournamentMatchesByMonth = new Map<string, Match[]>();
 
     sortedMatches.forEach(m => {
-        if (m.type === 'tournament') {
+        if (m.type === 'tournament' || m.type === 'tour') {
             const month = m.date.slice(0, 7);
             if (!tournamentMatchesByMonth.has(month)) tournamentMatchesByMonth.set(month, []);
             tournamentMatchesByMonth.get(month)!.push(m);
@@ -735,7 +754,7 @@ export const getMatchRatingDetails = (matchId: string, matches: Match[], players
     const tournamentEndTriggers = new Set<string>();
     const tournamentMatchesByMonth = new Map<string, Match[]>();
     sortedMatches.forEach(m => {
-        if (m.type === 'tournament') {
+        if (m.type === 'tournament' || m.type === 'tour') {
             const month = m.date.slice(0, 7);
             if (!tournamentMatchesByMonth.has(month)) tournamentMatchesByMonth.set(month, []);
             tournamentMatchesByMonth.get(month)!.push(m);

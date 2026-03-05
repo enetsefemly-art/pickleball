@@ -17,7 +17,7 @@ export interface Player {
 
 export interface Match {
   id: string;
-  type: 'betting' | 'tournament'; 
+  type: 'betting' | 'tournament' | 'tour'; 
   date: string; 
   team1: string[]; 
   team2: string[]; 
@@ -25,6 +25,7 @@ export interface Match {
   score2: number;
   winner: 1 | 2; 
   rankingPoints?: number; 
+  isHopeStar?: boolean;
 }
 
 export interface TournamentBonus {
@@ -68,6 +69,7 @@ export interface TournamentMatch {
   score2: number | '';
   isCompleted: boolean;
   matchId?: string; 
+  isHopeStar?: boolean;
 }
 
 // New Types for Team Match Mode
@@ -87,6 +89,7 @@ export interface TeamMatchScheduleItem {
     score2: number | '';
     isCompleted: boolean;
     matchId?: string;
+    isHopeStar?: boolean;
 }
 
 export interface TournamentState {
