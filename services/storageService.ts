@@ -171,21 +171,35 @@ const calculateStandings = (matches: Match[]) => {
         if (s1 > s2) { 
             ps1.wins++; ps2.losses++;
             // Points Logic: Hope Star = +2, Normal = +1
-            if (m.isHopeStar) {
+            if (m.hopeStarTeam1) {
                 ps1.points += 2;
-                ps2.points -= 1; // Hope Star Loss = -1
+            } else if (m.isHopeStar) {
+                ps1.points += 2;
             } else {
                 ps1.points += 1;
+            }
+            
+            if (m.hopeStarTeam2) {
+                ps2.points -= 1;
+            } else if (m.isHopeStar) {
+                ps2.points -= 1;
             }
         }
         else { 
             ps2.wins++; ps1.losses++;
             // Points Logic: Hope Star = +2, Normal = +1
-            if (m.isHopeStar) {
+            if (m.hopeStarTeam2) {
                 ps2.points += 2;
-                ps1.points -= 1; // Hope Star Loss = -1
+            } else if (m.isHopeStar) {
+                ps2.points += 2;
             } else {
                 ps2.points += 1;
+            }
+            
+            if (m.hopeStarTeam1) {
+                ps1.points -= 1;
+            } else if (m.isHopeStar) {
+                ps1.points -= 1;
             }
         }
     });

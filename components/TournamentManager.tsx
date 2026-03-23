@@ -1054,10 +1054,11 @@ const TeamMatchManager: React.FC<TournamentManagerProps> = ({
         }
     };
 
-    const toggleHopeStar = (matchId: string) => {
+    const toggleHopeStar = (matchId: string, team: 1 | 2) => {
         const newSchedule = schedule.map(m => {
             if (m.id === matchId) {
-                return { ...m, isHopeStar: !m.isHopeStar };
+                if (team === 1) return { ...m, hopeStarTeam1: !m.hopeStarTeam1 };
+                if (team === 2) return { ...m, hopeStarTeam2: !m.hopeStarTeam2 };
             }
             return m;
         });
@@ -1086,7 +1087,8 @@ const TeamMatchManager: React.FC<TournamentManagerProps> = ({
             score2: s2,
             winner: s1 > s2 ? 1 : 2 as 1 | 2,
             rankingPoints: 0,
-            isHopeStar: match.isHopeStar
+            hopeStarTeam1: match.hopeStarTeam1,
+            hopeStarTeam2: match.hopeStarTeam2
         };
 
         onSaveMatches([payload]);
@@ -1298,12 +1300,12 @@ const TeamMatchManager: React.FC<TournamentManagerProps> = ({
     schedule.forEach(m => {
         if (m.isCompleted) {
             if (Number(m.score1) > Number(m.score2)) {
-                score1 += m.isHopeStar ? 2 : 1;
-                if (m.isHopeStar) score2 -= 1;
+                score1 += m.hopeStarTeam1 ? 2 : 1;
+                if (m.hopeStarTeam2) score2 -= 1;
             }
             else if (Number(m.score2) > Number(m.score1)) {
-                score2 += m.isHopeStar ? 2 : 1;
-                if (m.isHopeStar) score1 -= 1;
+                score2 += m.hopeStarTeam2 ? 2 : 1;
+                if (m.hopeStarTeam1) score1 -= 1;
             }
         }
     });
@@ -1409,28 +1411,6 @@ const TeamMatchManager: React.FC<TournamentManagerProps> = ({
                     {schedule.map((m, idx) => (
                         <div key={m.id} className={`bg-white p-3 rounded-lg border transition-all relative overflow-hidden ${m.isCompleted ? 'border-green-200 bg-green-50/30' : 'border-slate-200 hover:border-indigo-300'}`}>
                             
-                            {/* Hope Star Toggle */}
-                            {!m.isCompleted && (
-                                <button 
-                                    onClick={(e) => { e.stopPropagation(); toggleHopeStar(m.id); }}
-                                    className={`absolute top-0 right-0 px-2 py-1 rounded-bl-lg z-10 text-[10px] font-bold flex items-center gap-1 transition-colors ${
-                                        m.isHopeStar 
-                                        ? 'bg-yellow-400 text-yellow-900 shadow-sm' 
-                                        : 'bg-slate-100 text-slate-400 hover:bg-slate-200'
-                                    }`}
-                                    title="Ngôi Sao Hy Vọng: Thắng +2 điểm, Thua -1 điểm"
-                                >
-                                    <Sparkles className={`w-3 h-3 ${m.isHopeStar ? 'fill-current' : ''}`} />
-                                    {m.isHopeStar ? 'Ngôi Sao Hy Vọng' : 'Sao Hy Vọng'}
-                                </button>
-                            )}
-                            
-                            {m.isCompleted && m.isHopeStar && (
-                                <div className="absolute top-0 right-0 bg-yellow-400 text-yellow-900 text-[10px] font-bold px-2 py-1 rounded-bl-lg z-10 flex items-center gap-1 shadow-sm">
-                                    <Sparkles className="w-3 h-3 fill-current" /> Sao Hy Vọng
-                                </div>
-                            )}
-
                             <div className="flex justify-between items-center mb-2">
                                 <span className="text-[10px] font-bold text-slate-400">#{idx+1}</span>
                                 {m.isCompleted && <span className="text-[10px] font-bold text-green-600 flex items-center gap-1"><CheckCircle2 className="w-3 h-3" /> Đã xong</span>}
@@ -1441,7 +1421,16 @@ const TeamMatchManager: React.FC<TournamentManagerProps> = ({
                                 <div className="flex-1 text-right">
                                     <div className="text-xs font-bold text-indigo-700 truncate">{m.pair1[0].name}</div>
                                     <div className="text-xs font-bold text-indigo-700 truncate">{m.pair1[1].name}</div>
-                                    <div className="text-[10px] text-slate-400 mt-0.5">{(m.pair1[0].tournamentRating||3)+(m.pair1[1].tournamentRating||3)}</div>
+                                    <div className="text-[10px] text-slate-400 mt-0.5 flex items-center justify-end gap-1">
+                                        <span>{(m.pair1[0].tournamentRating||3)+(m.pair1[1].tournamentRating||3)}</span>
+                                        {!m.isCompleted ? (
+                                            <button onClick={(e) => { e.stopPropagation(); toggleHopeStar(m.id, 1); }} className={`p-0.5 rounded ${m.hopeStarTeam1 ? 'text-yellow-500 bg-yellow-50' : 'text-slate-300 hover:text-yellow-500'}`} title="Ngôi sao hy vọng Đội 1">
+                                                <Sparkles className={`w-3 h-3 ${m.hopeStarTeam1 ? 'fill-current' : ''}`} />
+                                            </button>
+                                        ) : m.hopeStarTeam1 && (
+                                            <Sparkles className="w-3 h-3 text-yellow-500 fill-current" />
+                                        )}
+                                    </div>
                                 </div>
 
                                 {/* Score Inputs */}
@@ -1469,7 +1458,16 @@ const TeamMatchManager: React.FC<TournamentManagerProps> = ({
                                 <div className="flex-1 text-left">
                                     <div className="text-xs font-bold text-orange-700 truncate">{m.pair2[0].name}</div>
                                     <div className="text-xs font-bold text-orange-700 truncate">{m.pair2[1].name}</div>
-                                    <div className="text-xs text-slate-400 mt-0.5">{(m.pair2[0].tournamentRating||3)+(m.pair2[1].tournamentRating||3)}</div>
+                                    <div className="text-[10px] text-slate-400 mt-0.5 flex items-center justify-start gap-1">
+                                        {!m.isCompleted ? (
+                                            <button onClick={(e) => { e.stopPropagation(); toggleHopeStar(m.id, 2); }} className={`p-0.5 rounded ${m.hopeStarTeam2 ? 'text-yellow-500 bg-yellow-50' : 'text-slate-300 hover:text-yellow-500'}`} title="Ngôi sao hy vọng Đội 2">
+                                                <Sparkles className={`w-3 h-3 ${m.hopeStarTeam2 ? 'fill-current' : ''}`} />
+                                            </button>
+                                        ) : m.hopeStarTeam2 && (
+                                            <Sparkles className="w-3 h-3 text-yellow-500 fill-current" />
+                                        )}
+                                        <span>{(m.pair2[0].tournamentRating||3)+(m.pair2[1].tournamentRating||3)}</span>
+                                    </div>
                                 </div>
                             </div>
 

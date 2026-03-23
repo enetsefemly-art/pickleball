@@ -26,6 +26,8 @@ export interface Match {
   winner: 1 | 2; 
   rankingPoints?: number; 
   isHopeStar?: boolean;
+  hopeStarTeam1?: boolean;
+  hopeStarTeam2?: boolean;
 }
 
 export interface TournamentBonus {
@@ -90,6 +92,8 @@ export interface TeamMatchScheduleItem {
     isCompleted: boolean;
     matchId?: string;
     isHopeStar?: boolean;
+    hopeStarTeam1?: boolean;
+    hopeStarTeam2?: boolean;
 }
 
 export interface TournamentState {
