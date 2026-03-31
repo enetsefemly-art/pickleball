@@ -15,7 +15,7 @@ export const Banner: React.FC = () => {
 
   const fetchBanner = async () => {
     try {
-      const res = await fetch('/api/banner');
+      const res = await fetch('/api/app-config');
       const data = await res.json();
       if (data.url) {
         setBannerUrl(data.url);
@@ -29,17 +29,17 @@ export const Banner: React.FC = () => {
     setError('');
     setIsLoading(true);
     try {
-      const res = await fetch('/api/banner', {
+      const res = await fetch('/api/app-config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url: newUrl, password })
       });
       
+      const text = await res.text();
       let data;
       try {
-        data = await res.json();
+        data = JSON.parse(text);
       } catch (parseError) {
-        const text = await res.text();
         console.error("Failed to parse JSON. Server returned:", text);
         throw new Error("Invalid JSON response from server");
       }
@@ -52,8 +52,9 @@ export const Banner: React.FC = () => {
       } else {
         setError(data.message || 'Lỗi cập nhật banner');
       }
-    } catch (e) {
-      setError('Lỗi kết nối máy chủ');
+    } catch (e: any) {
+      console.error("Banner save error:", e);
+      setError(e.message === "Invalid JSON response from server" ? 'Lỗi phản hồi từ máy chủ' : 'Lỗi kết nối máy chủ');
     } finally {
       setIsLoading(false);
     }

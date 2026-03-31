@@ -86,9 +86,9 @@ async function startServer() {
   });
 
   // Banner Routes
-  const BANNER_FILE = '/tmp/banner.json';
+  const BANNER_FILE = '/tmp/app-config.json';
   
-  app.get("/api/banner", (req, res) => {
+  app.get("/api/app-config", (req, res) => {
     try {
       if (fs.existsSync(BANNER_FILE)) {
         const data = fs.readFileSync(BANNER_FILE, 'utf8');
@@ -101,18 +101,32 @@ async function startServer() {
     }
   });
 
-  app.post("/api/banner", (req, res) => {
+  app.post("/api/app-config", (req, res) => {
+    if (!req.body) {
+      return res.status(400).json({ status: "error", message: "Thiếu dữ liệu yêu cầu (req.body is undefined)" });
+    }
     const { url, password } = req.body;
     if (password !== "Tducteam") {
       return res.status(401).json({ status: "error", message: "Sai mật khẩu!" });
     }
     try {
+      // Ensure /tmp directory exists
+      const tmpDir = path.dirname(BANNER_FILE);
+      if (!fs.existsSync(tmpDir)) {
+        fs.mkdirSync(tmpDir, { recursive: true });
+      }
       fs.writeFileSync(BANNER_FILE, JSON.stringify({ url }));
       res.json({ status: "success" });
     } catch (e) {
       console.error("Banner save error:", e);
-      res.status(500).json({ status: "error", message: "Lỗi lưu banner" });
+      res.status(500).json({ status: "error", message: "Lỗi lưu banner: " + (e instanceof Error ? e.message : String(e)) });
     }
+  });
+
+  // Global error handler for API routes
+  app.use('/api', (err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+    console.error("API Error:", err);
+    res.status(500).json({ status: "error", message: "Lỗi máy chủ nội bộ: " + err.message });
   });
 
   // Vite middleware for development
