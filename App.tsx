@@ -13,7 +13,7 @@ import { AiMatchmaker } from './components/AiMatchmaker';
 import { CloudSync } from './components/CloudSync';
 import { ChangelogModal } from './components/ChangelogModal'; 
 import { Banner } from './components/Banner';
-import { LayoutDashboard, History, Trophy, PlusCircle, Zap, Cloud, Loader2, CheckCircle2, AlertCircle, CloudOff, Swords, UserCog, Scale, Plus, BrainCircuit, Users, Bell, Image } from 'lucide-react';
+import { LayoutDashboard, History, Trophy, PlusCircle, Zap, Cloud, Loader2, CheckCircle2, AlertCircle, CloudOff, Swords, Scale, Plus, BrainCircuit, Users, Bell, Image } from 'lucide-react';
 
 // Current App Version - Bump this to trigger red dot for users
 const APP_VERSION = '3.3.2'; // Bumped for Tournament Sync Fix
@@ -39,6 +39,7 @@ const App: React.FC = () => {
 
   // Banner State
   const [isEditingBanner, setIsEditingBanner] = useState(false);
+  const [bannerUrl, setBannerUrl] = useState<string | null>(() => localStorage.getItem('picklepro_banner_url'));
 
   // --- SYNC QUEUE REFS ---
   const isSyncingRef = useRef(false);
@@ -115,6 +116,15 @@ const App: React.FC = () => {
               saveTournamentState(null);
           }
           
+          if (cloudData.bannerUrl !== undefined) {
+              setBannerUrl(cloudData.bannerUrl);
+              if (cloudData.bannerUrl) {
+                  localStorage.setItem('picklepro_banner_url', cloudData.bannerUrl);
+              } else {
+                  localStorage.removeItem('picklepro_banner_url');
+              }
+          }
+          
           saveMatches(cloudData.matches);
           savePlayers(cloudStats);
 
@@ -147,6 +157,9 @@ const App: React.FC = () => {
           saveTournamentState(null);
           setTournamentState(null);
       }
+      
+      // Note: Manual sync from CloudSync component currently doesn't return bannerUrl
+      // We would need to update CloudSync to handle bannerUrl if we want manual sync to update it.
       
       const recalculatedPlayers = calculatePlayerStats(newPlayers, newMatches);
       setMatches(newMatches);
@@ -396,7 +409,12 @@ const App: React.FC = () => {
       </header>
 
       {/* Banner */}
-      <Banner isEditing={isEditingBanner} onCloseEdit={() => setIsEditingBanner(false)} />
+      <Banner 
+          isEditing={isEditingBanner} 
+          onCloseEdit={() => setIsEditingBanner(false)} 
+          externalBannerUrl={bannerUrl}
+          onBannerChange={(url) => setBannerUrl(url)}
+      />
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto p-4 md:p-6 space-y-6">

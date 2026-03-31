@@ -1,7 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { Player, Match } from '../types';
 import { runAutoMatchmaker, AutoMatchResult, GeneratedMatch } from '../services/autoMatchmaker';
-import { Card } from './Card';
 import { Zap, Users, Check, X, Shield, RefreshCw, Trophy, ArrowRight } from 'lucide-react';
 
 interface AutoMatchMakerModalProps {

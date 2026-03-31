@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { Match, Player } from '../types';
 import { Card } from './Card';
-import { Trash2, Calendar, Filter, X, Banknote, Trophy, User, Info, AlertCircle, ArrowRight, Layers, Scale, Swords } from 'lucide-react';
+import { Trash2, Calendar, Filter, X, Banknote, Trophy, User, Info, AlertCircle, Layers, Scale, Swords } from 'lucide-react';
 import { getMatchRatingDetails, RatingCalculationLog } from '../services/storageService';
 import { analyzeHistoryHandicaps } from '../services/autoMatchmaker';
 

@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Player, Match, TournamentState } from '../types';
 import { syncToCloud, syncFromCloud } from '../services/googleSheetService';
-import { Cloud, Download, Upload, CheckCircle, AlertCircle, Loader2, Terminal, Swords } from 'lucide-react';
-import { getTournamentState, saveTournamentState } from '../services/storageService';
+import { Cloud, Download, Upload, AlertCircle, Loader2, Terminal } from 'lucide-react';
+import { getTournamentState } from '../services/storageService';
 
 interface CloudSyncProps {
   players: Player[];

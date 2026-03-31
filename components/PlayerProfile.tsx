@@ -374,9 +374,6 @@ export const PlayerProfile: React.FC<PlayerProfileProps> = ({ player, players, m
         return result.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   }, [player, players, matches]);
 
-
-  const getNames = (ids: string[]) => ids.map(id => playerLookup.get(String(id))?.name || 'Unknown').join(' & ');
-
   return (
     <div className="fixed inset-0 z-[70] bg-slate-900/90 backdrop-blur-sm overflow-y-auto animate-fade-in">
         <div className="min-h-full p-4 flex items-center justify-center">
@@ -796,7 +793,7 @@ export const PlayerProfile: React.FC<PlayerProfileProps> = ({ player, players, m
                                     </thead>
                                     <tbody className="divide-y divide-slate-100">
                                         {dailySummary.length > 0 ? (
-                                            dailySummary.map((day, idx) => (
+                                            dailySummary.map((day) => (
                                                 <React.Fragment key={day.date}>
                                                     <tr 
                                                         className="hover:bg-slate-50/50 transition-colors cursor-pointer group"
@@ -855,7 +852,7 @@ export const PlayerProfile: React.FC<PlayerProfileProps> = ({ player, players, m
                                                         <tr className="bg-slate-50/30 animate-fade-in">
                                                             <td colSpan={5} className="px-4 py-2">
                                                                 <div className="ml-6 border-l-2 border-slate-200 pl-4 space-y-2">
-                                                                    {day.matches.map((mItem, mIdx) => {
+                                                                    {day.matches.map((mItem) => {
                                                                         const m = mItem.match;
                                                                         const currentPid = String(player.id);
                                                                         const t1 = m.team1.map(String);

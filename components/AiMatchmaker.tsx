@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { Player, Match } from '../types';
 import { Card } from './Card';
 import { findTopMatchupsForTeam, findBestPartners, GeneratedMatch } from '../services/autoMatchmaker';
-import { Zap, Shield, Target, CheckCircle2, AlertCircle, Sparkles, TrendingUp, Users, Scale, Info, BrainCircuit, History, Swords, UserPlus, User, Filter, X, CheckSquare, Square, Settings2 } from 'lucide-react';
+import { Zap, Shield, Target, CheckCircle2, AlertCircle, Sparkles, Users, Swords, UserPlus, Filter, X, CheckSquare, Square, Settings2 } from 'lucide-react';
 
 interface AiMatchmakerProps {
   players: Player[];

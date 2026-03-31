@@ -1,25 +1,28 @@
 import React, { useState, useEffect } from 'react';
-import { Image, X, Check } from 'lucide-react';
+import { Image, X, Check, Loader2 } from 'lucide-react';
+import { saveBannerToCloud } from '../services/googleSheetService';
 
 const BANNER_STORAGE_KEY = 'picklepro_banner_url';
 
 interface BannerProps {
     isEditing: boolean;
     onCloseEdit: () => void;
+    externalBannerUrl?: string | null;
+    onBannerChange?: (url: string | null) => void;
 }
 
-export const Banner: React.FC<BannerProps> = ({ isEditing, onCloseEdit }) => {
-    const [bannerUrl, setBannerUrl] = useState<string | null>(null);
+export const Banner: React.FC<BannerProps> = ({ isEditing, onCloseEdit, externalBannerUrl, onBannerChange }) => {
+    const [bannerUrl, setBannerUrl] = useState<string | null>(externalBannerUrl || null);
     const [tempUrl, setTempUrl] = useState('');
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
+    const [isSaving, setIsSaving] = useState(false);
 
     useEffect(() => {
-        const storedUrl = localStorage.getItem(BANNER_STORAGE_KEY);
-        if (storedUrl) {
-            setBannerUrl(storedUrl);
+        if (externalBannerUrl !== undefined) {
+            setBannerUrl(externalBannerUrl);
         }
-    }, []);
+    }, [externalBannerUrl]);
 
     useEffect(() => {
         if (isEditing) {
@@ -29,21 +32,34 @@ export const Banner: React.FC<BannerProps> = ({ isEditing, onCloseEdit }) => {
         }
     }, [isEditing, bannerUrl]);
 
-    const handleSave = () => {
+    const handleSave = async () => {
         if (password !== 'Tducteam') {
             setError('Mật khẩu không đúng!');
             return;
         }
         
-        if (tempUrl.trim() === '') {
-            localStorage.removeItem(BANNER_STORAGE_KEY);
-            setBannerUrl(null);
-        } else {
-            localStorage.setItem(BANNER_STORAGE_KEY, tempUrl);
-            setBannerUrl(tempUrl);
+        setIsSaving(true);
+        setError('');
+
+        try {
+            await saveBannerToCloud(tempUrl.trim());
+            
+            if (tempUrl.trim() === '') {
+                localStorage.removeItem(BANNER_STORAGE_KEY);
+                setBannerUrl(null);
+                if (onBannerChange) onBannerChange(null);
+            } else {
+                localStorage.setItem(BANNER_STORAGE_KEY, tempUrl);
+                setBannerUrl(tempUrl);
+                if (onBannerChange) onBannerChange(tempUrl);
+            }
+            
+            onCloseEdit();
+        } catch (err: any) {
+            setError(err.message || 'Lỗi khi lưu banner lên cloud.');
+        } finally {
+            setIsSaving(false);
         }
-        
-        onCloseEdit();
     };
 
     const handleCancel = () => {
@@ -116,10 +132,11 @@ export const Banner: React.FC<BannerProps> = ({ isEditing, onCloseEdit }) => {
                             </button>
                             <button 
                                 onClick={handleSave}
-                                className="px-3 py-1.5 text-sm bg-pickle-600 text-white rounded-md hover:bg-pickle-700 transition-colors flex items-center gap-1"
+                                disabled={isSaving}
+                                className="px-3 py-1.5 text-sm bg-pickle-600 text-white rounded-md hover:bg-pickle-700 transition-colors flex items-center gap-1 disabled:opacity-50"
                             >
-                                <Check size={16} />
-                                Lưu Banner
+                                {isSaving ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />}
+                                {isSaving ? 'Đang lưu...' : 'Lưu Banner'}
                             </button>
                         </div>
                     </div>

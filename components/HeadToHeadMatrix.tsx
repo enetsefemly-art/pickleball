@@ -1,7 +1,5 @@
 import React, { useMemo } from 'react';
 import { Player, Match } from '../types';
-import { Card } from './Card';
-import { Grid3X3, Info } from 'lucide-react';
 
 interface HeadToHeadMatrixProps {
   players: Player[];

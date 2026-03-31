@@ -94,7 +94,7 @@ export const getTournamentBonuses = (): TournamentBonus[] => {
   return [];
 };
 
-export const saveTournamentBonuses = (bonuses: TournamentBonus[]) => {
+export const saveTournamentBonuses = (_bonuses: TournamentBonus[]) => {
 };
 
 // Helper: Resolve ties for monthly bonuses
@@ -232,7 +232,7 @@ const calculateStandings = (matches: Match[]) => {
 };
 
 // Exported function for external use (e.g. TournamentManager, PlayerProfile)
-export const getTournamentStandings = (monthKey: string, players: Player[], matches: Match[]) => {
+export const getTournamentStandings = (monthKey: string, _players: Player[], matches: Match[]) => {
     // Filter matches for the specific month and tournament type
     // FIX: Removed RATING_START_DATE check so historical cups (e.g. Oct) are counted
     const validMatches = matches.filter(m => {
@@ -245,7 +245,7 @@ export const getTournamentStandings = (monthKey: string, players: Player[], matc
 
 // Helper: Calculate bonuses for a specific month based on matches
 const calculateAndApplyMonthlyBonuses = (
-    monthKey: string, 
+    _monthKey: string, 
     monthMatches: Match[], 
     playerMap: Map<string, Player>
 ) => {

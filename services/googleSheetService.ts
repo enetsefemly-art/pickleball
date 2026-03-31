@@ -1,11 +1,11 @@
 import { Player, Match, TournamentState } from '../types';
 
 // URL API được lấy từ file hiện tại
-const API_URL = 'https://script.google.com/macros/s/AKfycbxmlwOwE0mOIoZMznr3-nqTTJNEwtek0zhBYTVjYm8fE8TZCNY9Ejs7RghiZDkNXnnD/exec';
+const API_URL = 'https://script.google.com/macros/s/AKfycbzj9qtzR3xPbWaF32IXKYl5RenqpFVz97Oh7XJR9aLwTSt9WGRJcKdoPAzfW8-Q7pdn/exec';
 
 export const getApiUrl = () => API_URL;
 
-export const saveApiUrl = (url: string) => {
+export const saveApiUrl = (_url: string) => {
     console.warn("API URL đã được gắn cứng, không thể thay đổi.");
 };
 
@@ -15,6 +15,7 @@ interface SyncResponse {
         players: Player[];
         matches: Match[];
         tournament?: TournamentState | null;
+        link?: any[];
     };
     message?: string;
 }
@@ -142,7 +143,49 @@ export const syncToCloud = async (players: Player[], matches: Match[], tournamen
     }
 };
 
-export const syncFromCloud = async (): Promise<{ players: Player[], matches: Match[], tournament: TournamentState | null }> => {
+export const saveBannerToCloud = async (url: string): Promise<boolean> => {
+    const apiUrl = getApiUrl();
+    console.log("Starting Banner Sync (Upload)...");
+    
+    try {
+        const response = await fetchWithTimeout(apiUrl, {
+            method: 'POST',
+            redirect: 'follow', 
+            headers: {
+                "Content-Type": "text/plain;charset=utf-8",
+            },
+            body: JSON.stringify({ 
+                link: [
+                    {
+                        link: url,
+                        "vị trí": "banner-tong"
+                    }
+                ]
+            }),
+        }, 15000); 
+
+        const text = await response.text();
+        let result: SyncResponse;
+        
+        try {
+            result = JSON.parse(text);
+        } catch (e) {
+            console.error("Invalid JSON response (POST):", text);
+            throw new Error("Máy chủ phản hồi không đúng định dạng JSON.");
+        }
+
+        if (result.status === 'success') {
+            return true;
+        } else {
+            throw new Error(result.message || 'Lỗi không xác định từ Google Sheet');
+        }
+    } catch (error) {
+        console.error("Banner Sync Upload Error:", error);
+        throw error;
+    }
+};
+
+export const syncFromCloud = async (): Promise<{ players: Player[], matches: Match[], tournament: TournamentState | null, bannerUrl?: string | null }> => {
     const url = getApiUrl();
     const finalUrl = `${url}?nocache=${Date.now()}`;
     
@@ -299,10 +342,22 @@ export const syncFromCloud = async (): Promise<{ players: Player[], matches: Mat
                 }
             }
 
+            let bannerUrl = null;
+            if (result.data.link && Array.isArray(result.data.link)) {
+                const bannerRow = result.data.link.find((row: any) => {
+                    const pos = getProp(row, 'vị trí', 'vi tri', 'vitri', 'position');
+                    return pos === 'banner-tong';
+                });
+                if (bannerRow) {
+                    bannerUrl = getProp(bannerRow, 'link', 'url');
+                }
+            }
+
             return {
                 players: sanitizedPlayers,
                 matches: sanitizedMatches,
-                tournament: tournament
+                tournament: tournament,
+                bannerUrl: bannerUrl
             };
         } else {
             throw new Error(result.message || 'Lỗi: Cấu trúc dữ liệu không hợp lệ.');

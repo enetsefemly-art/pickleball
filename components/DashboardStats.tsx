@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Match, Player } from '../types';
 import { Card } from './Card';
-import { Trophy, TrendingUp, Users, Banknote, Medal, Calendar, Grid3X3, Filter, Award, TrendingDown, Activity, Minus, Scale, ArrowUpCircle, ArrowDownCircle, ArrowRightLeft, ArrowUpDown, Percent, Hash } from 'lucide-react';
+import { TrendingUp, Users, Banknote, Calendar, Grid3X3, Award, TrendingDown, Activity, Minus, Scale, ArrowUpCircle, ArrowDownCircle, ArrowRightLeft, ArrowUpDown, Percent, Hash } from 'lucide-react';
 import { HeadToHeadMatrix } from './HeadToHeadMatrix';
 import { getDailyRatingHistory } from '../services/storageService';
 import { analyzeHistoryHandicaps } from '../services/autoMatchmaker';
@@ -547,7 +547,7 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({ matches, players
           let visualRatingCursor = startRating;
 
           // Generate cell data for each date in this month
-          const cells = currentMonthHistory.map((day, idx) => {
+          const cells = currentMonthHistory.map((day) => {
               const currentSnapshotRating = day.ratings[pid];
               
               if (currentSnapshotRating === undefined) return null;
@@ -938,7 +938,7 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({ matches, players
                         const totalMatches = stat.balanced.total + stat.underdog.total + stat.favorite.total;
                         const isCountMetric = handicapSortMetric === 'count';
                         
-                        const renderCell = (data: HandicapCategoryStats, colorClass: string, barColor: string) => {
+                        const renderCell = (data: HandicapCategoryStats, barColor: string) => {
                             if (data.total === 0) return <span className="text-slate-300">-</span>;
                             const rate = Math.round((data.wins / data.total) * 100);
                             const share = Math.round((data.total / totalMatches) * 100); // Proportion of total games
@@ -982,13 +982,13 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({ matches, players
                                     {totalMatches}
                                 </td>
                                 <td className="px-2 py-3 text-center border-r border-slate-50 bg-red-50/10">
-                                    {renderCell(stat.underdog, 'red', 'bg-red-400')}
+                                    {renderCell(stat.underdog, 'bg-red-400')}
                                 </td>
                                 <td className="px-2 py-3 text-center border-r border-slate-50 bg-blue-50/10">
-                                    {renderCell(stat.balanced, 'blue', 'bg-blue-400')}
+                                    {renderCell(stat.balanced, 'bg-blue-400')}
                                 </td>
                                 <td className="px-2 py-3 text-center bg-green-50/10">
-                                    {renderCell(stat.favorite, 'green', 'bg-green-400')}
+                                    {renderCell(stat.favorite, 'bg-green-400')}
                                 </td>
                             </tr>
                         );

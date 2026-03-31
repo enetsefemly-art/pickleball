@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Player, Match } from '../types';
 import { calculatePlayerStats } from '../services/storageService';
-import { Trophy, Medal, TrendingUp, TrendingDown, Filter, Banknote, Users, User, Eye, X, Calendar, AlertTriangle, Layers } from 'lucide-react';
+import { Trophy, Medal, Filter, Banknote, Users, User } from 'lucide-react';
 
 interface LeaderboardProps {
   players: Player[]; // Original list of players
@@ -31,8 +31,6 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({ players: initialPlayer
   
   const [selectedMonth, setSelectedMonth] = useState<string>(new Date().toISOString().slice(0, 7)); 
   const [selectedDay, setSelectedDay] = useState<string>(new Date().toISOString().split('T')[0]); 
-  
-  const [auditPlayerId, setAuditPlayerId] = useState<string | null>(null);
   
   const getCurrentWeekVal = () => {
     const d = new Date();
