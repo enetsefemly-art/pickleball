@@ -12,6 +12,7 @@ import { Analysis } from './components/Analysis';
 import { AiMatchmaker } from './components/AiMatchmaker'; 
 import { CloudSync } from './components/CloudSync';
 import { ChangelogModal } from './components/ChangelogModal'; 
+import { Banner } from './components/Banner';
 import { LayoutDashboard, History, Trophy, PlusCircle, Zap, Cloud, Loader2, CheckCircle2, AlertCircle, CloudOff, Swords, UserCog, Scale, Plus, BrainCircuit, Users, Bell } from 'lucide-react';
 
 // Current App Version - Bump this to trigger red dot for users
@@ -381,6 +382,9 @@ const App: React.FC = () => {
           </div>
         </div>
       </header>
+
+      {/* Banner Section */}
+      <Banner />
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto p-4 md:p-6 space-y-6">

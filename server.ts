@@ -1,6 +1,7 @@
 import "dotenv/config";
 import express from "express";
 import { createServer as createViteServer } from "vite";
+import fs from "fs";
 
 async function startServer() {
   const app = express();
@@ -81,6 +82,36 @@ async function startServer() {
         status: 'error', 
         message: 'Lỗi khi kết nối tới Google Script: ' + (error instanceof Error ? error.message : String(error))
       });
+    }
+  });
+
+  // Banner Routes
+  const BANNER_FILE = '/tmp/banner.json';
+  
+  app.get("/api/banner", (req, res) => {
+    try {
+      if (fs.existsSync(BANNER_FILE)) {
+        const data = fs.readFileSync(BANNER_FILE, 'utf8');
+        res.json(JSON.parse(data));
+      } else {
+        res.json({ url: "" });
+      }
+    } catch (e) {
+      res.json({ url: "" });
+    }
+  });
+
+  app.post("/api/banner", (req, res) => {
+    const { url, password } = req.body;
+    if (password !== "Tducteam") {
+      return res.status(401).json({ status: "error", message: "Sai mật khẩu!" });
+    }
+    try {
+      fs.writeFileSync(BANNER_FILE, JSON.stringify({ url }));
+      res.json({ status: "success" });
+    } catch (e) {
+      console.error("Banner save error:", e);
+      res.status(500).json({ status: "error", message: "Lỗi lưu banner" });
     }
   });
 
