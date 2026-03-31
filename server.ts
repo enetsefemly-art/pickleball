@@ -2,6 +2,7 @@ import "dotenv/config";
 import express from "express";
 import { createServer as createViteServer } from "vite";
 import fs from "fs";
+import path from "path";
 
 async function startServer() {
   const app = express();
@@ -124,7 +125,11 @@ async function startServer() {
     app.use(vite.middlewares);
   } else {
     // Production: Serve static files from dist
-    app.use(express.static("dist"));
+    const distPath = path.join(process.cwd(), 'dist');
+    app.use(express.static(distPath));
+    app.get('*all', (req, res) => {
+      res.sendFile(path.join(distPath, 'index.html'));
+    });
   }
 
   app.listen(PORT, "0.0.0.0", () => {
