@@ -13,7 +13,7 @@ import { AiMatchmaker } from './components/AiMatchmaker';
 import { CloudSync } from './components/CloudSync';
 import { ChangelogModal } from './components/ChangelogModal'; 
 import { Banner } from './components/Banner';
-import { LayoutDashboard, History, Trophy, PlusCircle, Zap, Cloud, Loader2, CheckCircle2, AlertCircle, CloudOff, Swords, UserCog, Scale, Plus, BrainCircuit, Users, Bell } from 'lucide-react';
+import { LayoutDashboard, History, Trophy, PlusCircle, Zap, Cloud, Loader2, CheckCircle2, AlertCircle, CloudOff, Swords, UserCog, Scale, Plus, BrainCircuit, Users, Bell, Image } from 'lucide-react';
 
 // Current App Version - Bump this to trigger red dot for users
 const APP_VERSION = '3.3.2'; // Bumped for Tournament Sync Fix
@@ -36,6 +36,9 @@ const App: React.FC = () => {
   // Changelog State
   const [showChangelog, setShowChangelog] = useState(false);
   const [hasNewUpdate, setHasNewUpdate] = useState(false);
+
+  // Banner State
+  const [isEditingBanner, setIsEditingBanner] = useState(false);
 
   // --- SYNC QUEUE REFS ---
   const isSyncingRef = useRef(false);
@@ -359,6 +362,15 @@ const App: React.FC = () => {
 
              <div className="w-px h-6 bg-slate-700 mx-1"></div>
 
+             {/* Banner Settings Button */}
+             <button
+                onClick={() => setIsEditingBanner(!isEditingBanner)}
+                className={`p-2 rounded-full transition-colors ${isEditingBanner ? 'bg-pickle-500 text-white' : 'hover:bg-slate-800 text-slate-400 hover:text-white'}`}
+                title="Cập nhật Banner"
+             >
+                <Image size={20} />
+             </button>
+
              {/* Changelog Notification Button */}
              <button
                 onClick={handleOpenChangelog}
@@ -383,8 +395,8 @@ const App: React.FC = () => {
         </div>
       </header>
 
-      {/* Banner Section */}
-      <Banner />
+      {/* Banner */}
+      <Banner isEditing={isEditingBanner} onCloseEdit={() => setIsEditingBanner(false)} />
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto p-4 md:p-6 space-y-6">
