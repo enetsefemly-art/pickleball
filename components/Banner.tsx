@@ -34,7 +34,15 @@ export const Banner: React.FC = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url: newUrl, password })
       });
-      const data = await res.json();
+      
+      let data;
+      try {
+        data = await res.json();
+      } catch (parseError) {
+        const text = await res.text();
+        console.error("Failed to parse JSON. Server returned:", text);
+        throw new Error("Invalid JSON response from server");
+      }
       
       if (res.ok) {
         setBannerUrl(newUrl);

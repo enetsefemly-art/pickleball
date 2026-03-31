@@ -5,8 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
-    "start": "tsx server.ts",
-    "build": "vite build",
+    "start": "node server.js",
+    "build": "vite build && esbuild server.ts --platform=node --packages=external --format=esm --outfile=server.js",
     "preview": "vite preview",
     "lint": "tsc --noEmit"
   },
@@ -25,6 +25,7 @@
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.1",
+    "esbuild": "^0.27.4",
     "typescript": "^5.5.3",
     "vite": "^5.4.1"
   }
