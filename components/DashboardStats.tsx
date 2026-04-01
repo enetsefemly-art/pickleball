@@ -64,10 +64,16 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({ matches, players
   const [handicapSortMetric, setHandicapSortMetric] = useState<SortMetric>('count'); // 'count' or 'rate'
 
   // Matrix Filter State (H2H)
-  const [matrixTimeFilter, setMatrixTimeFilter] = useState<'all' | 'month'>('all');
+  const [matrixTimeFilter, setMatrixTimeFilter] = useState<string>(currentMonthKey);
 
   // Matrix Filter State (Rating Exchange)
-  const [ratingExchangeFilter, setRatingExchangeFilter] = useState<'all' | 'month'>('all');
+  const [ratingExchangeFilter, setRatingExchangeFilter] = useState<string>(currentMonthKey);
+
+  // Highlights & Betting Points Time Filter
+  const [bettingPointsTimeFilter, setBettingPointsTimeFilter] = useState<string>(currentMonthKey);
+
+  // Rating History Time Filter
+  const [ratingHistoryTimeFilter, setRatingHistoryTimeFilter] = useState<string>(currentMonthKey);
   
   // Create a lookup map, ensuring keys are always Strings
   const playerLookup = useMemo(() => new Map(players.map(p => [String(p.id), p])), [players]);
@@ -87,7 +93,10 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({ matches, players
 
   // --- GLOBAL MONTHLY CALCULATION (Keep for Highlights & Financials) ---
   const stats = useMemo<{ indStats: Map<string, IndStat>; pairStats: Map<string, PairStat> }>(() => {
-    const monthMatches = matches.filter(m => m.date.startsWith(currentMonthKey));
+    let monthMatches = matches;
+    if (bettingPointsTimeFilter !== 'all') {
+        monthMatches = matches.filter(m => m.date.startsWith(bettingPointsTimeFilter));
+    }
 
     // 1. Individual Stats (For Highlights)
     const indStats = new Map<string, IndStat>();
@@ -172,7 +181,7 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({ matches, players
     });
 
     return { indStats, pairStats };
-  }, [matches, activePlayers, currentMonthKey, playerLookup, activePlayerIds]);
+  }, [matches, activePlayers, bettingPointsTimeFilter, playerLookup, activePlayerIds]);
 
 
   // --- EXTRACT HIGHLIGHTS ---
@@ -415,7 +424,7 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({ matches, players
           // as long as it affected rating.
           // Check filter time for DISPLAY accumulation
           let shouldCount = true;
-          if (ratingExchangeFilter === 'month' && !m.date.startsWith(currentMonthKey)) shouldCount = false;
+          if (ratingExchangeFilter !== 'all' && !m.date.startsWith(ratingExchangeFilter)) shouldCount = false;
 
           let s1 = Number(m.score1);
           let s2 = Number(m.score2);
@@ -472,7 +481,7 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({ matches, players
       });
 
       return matrix;
-  }, [matches, activePlayers, activePlayerIds, ratingExchangeFilter, currentMonthKey]);
+  }, [matches, activePlayers, activePlayerIds, ratingExchangeFilter]);
 
   // --- BETTING POINTS TABLE DATA (Uses global stats - Current Month Only) ---
   const bettingPointsTableData = useMemo(() => {
@@ -498,16 +507,16 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({ matches, players
       // 1. Get full history
       const history = getDailyRatingHistory(players, matches);
       
-      // 2. Filter for current month and Sort CHRONOLOGICALLY ASCENDING
+      // 2. Filter for selected month (or all) and Sort CHRONOLOGICALLY ASCENDING
       const currentMonthHistory = history
-          .filter(h => h.date.startsWith(currentMonthKey))
+          .filter(h => ratingHistoryTimeFilter === 'all' || h.date.startsWith(ratingHistoryTimeFilter))
           .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
       
       if (currentMonthHistory.length === 0) return { dates: [], rows: [] };
 
-      // Pre-calculate which players played on which date in this month
+      // Pre-calculate which players played on which date in this period
       const playedOnDate = new Map<string, Set<string>>();
-      const monthMatches = matches.filter(m => m.date.startsWith(currentMonthKey));
+      const monthMatches = matches.filter(m => ratingHistoryTimeFilter === 'all' || m.date.startsWith(ratingHistoryTimeFilter));
       
       monthMatches.forEach(m => {
           const d = m.date.split('T')[0];
@@ -517,8 +526,8 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({ matches, players
           m.team2.forEach(id => set.add(String(id)));
       });
 
-      // 3. Find index of the first entry of this month in the FULL history to determine Start Rating
-      const firstDayOfMonthIdx = history.findIndex(h => h.date.startsWith(currentMonthKey));
+      // 3. Find index of the first entry of this period in the FULL history to determine Start Rating
+      const firstDayOfMonthIdx = history.findIndex(h => ratingHistoryTimeFilter === 'all' || h.date.startsWith(ratingHistoryTimeFilter));
 
       // 4. Build Rows for ALL Active Players
       const rows = activePlayers.map(player => {
@@ -613,13 +622,13 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({ matches, players
           })),
           rows
       };
-  }, [players, matches, currentMonthKey, activePlayers, playerLookup]);
+  }, [players, matches, ratingHistoryTimeFilter, activePlayers, playerLookup]);
 
   // --- FILTER MATCHES FOR MATRIX ---
   const matrixMatches = useMemo(() => {
       if (matrixTimeFilter === 'all') return matches;
-      return matches.filter(m => m.date.startsWith(currentMonthKey));
-  }, [matches, matrixTimeFilter, currentMonthKey]);
+      return matches.filter(m => m.date.startsWith(matrixTimeFilter));
+  }, [matches, matrixTimeFilter]);
 
   // --- ACTIVE PLAYERS FOR MATRIX ---
   const matrixActivePlayers = useMemo(() => {
@@ -652,10 +661,19 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({ matches, players
 
   return (
     <div className="space-y-6">
-      {/* Month Header */}
+      {/* Month Header / Global Filter for Highlights & Betting Points */}
       <div className="flex items-center gap-2 text-slate-600 font-bold bg-slate-100 w-fit px-3 py-1 rounded-full text-xs sm:text-sm">
         <Calendar className="w-4 h-4" />
-        Tháng {new Date().getMonth() + 1}/{new Date().getFullYear()}
+        <select 
+            value={bettingPointsTimeFilter}
+            onChange={(e) => setBettingPointsTimeFilter(e.target.value)}
+            className="bg-transparent border-none text-slate-700 font-bold outline-none cursor-pointer"
+        >
+            <option value="all">Toàn bộ thời gian</option>
+            {availableMonths.map(month => (
+                <option key={month} value={month}>Tháng {month.slice(5)}/{month.slice(0,4)}</option>
+            ))}
+        </select>
       </div>
 
       {/* 1. HIGHLIGHTS ROW */}
@@ -791,8 +809,22 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({ matches, players
          <div className="flex flex-col sm:flex-row items-center justify-between border-b border-slate-100 p-4 gap-4 bg-slate-50/50">
             <h3 className="font-bold text-slate-800 flex items-center gap-2 text-sm sm:text-base">
                 <Activity className="w-5 h-5 text-indigo-500" />
-                Biến Động Rating (Tất cả - Tháng này)
+                Biến Động Rating
             </h3>
+            
+            <div className="flex flex-col sm:flex-row gap-2 w-full xl:w-auto">
+                {/* Time Filter Dropdown */}
+                <select 
+                    value={ratingHistoryTimeFilter}
+                    onChange={(e) => setRatingHistoryTimeFilter(e.target.value)}
+                    className="bg-white border border-slate-300 text-slate-700 text-xs sm:text-sm rounded-lg px-3 py-1.5 focus:ring-2 focus:ring-pickle-500 focus:border-pickle-500 outline-none font-bold"
+                >
+                    <option value="all">Toàn bộ thời gian</option>
+                    {availableMonths.map(month => (
+                        <option key={month} value={month}>Tháng {month.slice(5)}/{month.slice(0,4)}</option>
+                    ))}
+                </select>
+            </div>
          </div>
          <div className="w-full overflow-x-auto">
             {ratingHistoryData.rows.length > 0 ? (
@@ -1135,7 +1167,7 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({ matches, players
       </Card>
 
       {/* 5. BETTING POINTS TABLE */}
-      <Card title="Bảng Điểm Cược Cặp Đôi (Tháng)" className="p-0 sm:p-6" classNameTitle="px-4 sm:px-6">
+      <Card title="Bảng Điểm Cược Cặp Đôi" className="p-0 sm:p-6" classNameTitle="px-4 sm:px-6">
         <div className="w-full">
             <table className="w-full text-sm text-left table-fixed">
                 <thead className="bg-slate-50 text-slate-500 font-bold text-[10px] sm:text-xs uppercase">
@@ -1185,27 +1217,18 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({ matches, players
                 <Grid3X3 className="w-5 h-5 text-slate-500" />
                 Ma Trận Đối Đầu (Win Rate)
             </h3>
-            <div className="flex bg-slate-200 rounded-lg p-1 w-full sm:w-auto">
-                <button 
-                    onClick={() => setMatrixTimeFilter('all')}
-                    className={`flex-1 sm:flex-none px-3 py-1.5 rounded-md text-[10px] sm:text-sm font-bold transition-all ${
-                        matrixTimeFilter === 'all' 
-                        ? 'bg-slate-800 text-white shadow-md' 
-                        : 'text-slate-600 hover:text-slate-900'
-                    }`}
+            <div className="flex flex-col sm:flex-row gap-2 w-full xl:w-auto">
+                {/* Time Filter Dropdown */}
+                <select 
+                    value={matrixTimeFilter}
+                    onChange={(e) => setMatrixTimeFilter(e.target.value)}
+                    className="bg-white border border-slate-300 text-slate-700 text-xs sm:text-sm rounded-lg px-3 py-1.5 focus:ring-2 focus:ring-pickle-500 focus:border-pickle-500 outline-none font-bold"
                 >
-                    Tất Cả
-                </button>
-                <button 
-                    onClick={() => setMatrixTimeFilter('month')}
-                    className={`flex-1 sm:flex-none px-3 py-1.5 rounded-md text-[10px] sm:text-sm font-bold transition-all ${
-                        matrixTimeFilter === 'month' 
-                        ? 'bg-slate-800 text-white shadow-md' 
-                        : 'text-slate-600 hover:text-slate-900'
-                    }`}
-                >
-                    Tháng Này
-                </button>
+                    <option value="all">Toàn bộ thời gian</option>
+                    {availableMonths.map(month => (
+                        <option key={month} value={month}>Tháng {month.slice(5)}/{month.slice(0,4)}</option>
+                    ))}
+                </select>
             </div>
          </div>
          <div className="p-4">
@@ -1223,27 +1246,18 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({ matches, players
                 <ArrowRightLeft className="w-5 h-5 text-blue-500" />
                 Ma Trận Điểm Rating (Được/Mất)
             </h3>
-            <div className="flex bg-slate-200 rounded-lg p-1 w-full sm:w-auto">
-                <button 
-                    onClick={() => setRatingExchangeFilter('all')}
-                    className={`flex-1 sm:flex-none px-3 py-1.5 rounded-md text-[10px] sm:text-sm font-bold transition-all ${
-                        ratingExchangeFilter === 'all' 
-                        ? 'bg-blue-600 text-white shadow-md' 
-                        : 'text-slate-600 hover:text-slate-900'
-                    }`}
+            <div className="flex flex-col sm:flex-row gap-2 w-full xl:w-auto">
+                {/* Time Filter Dropdown */}
+                <select 
+                    value={ratingExchangeFilter}
+                    onChange={(e) => setRatingExchangeFilter(e.target.value)}
+                    className="bg-white border border-slate-300 text-slate-700 text-xs sm:text-sm rounded-lg px-3 py-1.5 focus:ring-2 focus:ring-pickle-500 focus:border-pickle-500 outline-none font-bold"
                 >
-                    Tất Cả
-                </button>
-                <button 
-                    onClick={() => setRatingExchangeFilter('month')}
-                    className={`flex-1 sm:flex-none px-3 py-1.5 rounded-md text-[10px] sm:text-sm font-bold transition-all ${
-                        ratingExchangeFilter === 'month' 
-                        ? 'bg-blue-600 text-white shadow-md' 
-                        : 'text-slate-600 hover:text-slate-900'
-                    }`}
-                >
-                    Tháng Này
-                </button>
+                    <option value="all">Toàn bộ thời gian</option>
+                    {availableMonths.map(month => (
+                        <option key={month} value={month}>Tháng {month.slice(5)}/{month.slice(0,4)}</option>
+                    ))}
+                </select>
             </div>
          </div>
          <div className="w-full overflow-x-auto p-4">
