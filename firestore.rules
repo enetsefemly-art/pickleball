@@ -120,30 +120,30 @@ service cloud.firestore {
 
     match /players/{playerId} {
       allow read: if true;
-      allow create: if isAdmin() && isValidPlayer(request.resource.data);
-      allow update: if isAdmin() && isValidPlayer(request.resource.data);
-      allow delete: if isAdmin();
+      allow create: if isValidPlayer(request.resource.data);
+      allow update: if isValidPlayer(request.resource.data);
+      allow delete: if true;
     }
 
     match /matches/{matchId} {
       allow read: if true;
-      allow create: if isAdmin() && isValidMatch(request.resource.data);
-      allow update: if isAdmin() && isValidMatch(request.resource.data);
-      allow delete: if isAdmin();
+      allow create: if isValidMatch(request.resource.data);
+      allow update: if isValidMatch(request.resource.data);
+      allow delete: if true;
     }
 
     match /config/tournament {
       allow read: if true;
-      allow create: if isAdmin() && isValidTournament(request.resource.data);
-      allow update: if isAdmin() && isValidTournament(request.resource.data);
-      allow delete: if isAdmin();
+      allow create: if isValidTournament(request.resource.data);
+      allow update: if isValidTournament(request.resource.data);
+      allow delete: if true;
     }
 
     match /config/app {
       allow read: if true;
-      allow create: if isAdmin() && isValidAppConfig(request.resource.data);
-      allow update: if isAdmin() && isValidAppConfig(request.resource.data);
-      allow delete: if isAdmin();
+      allow create: if isValidAppConfig(request.resource.data);
+      allow update: if isValidAppConfig(request.resource.data);
+      allow delete: if true;
     }
   }
 }
