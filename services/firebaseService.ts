@@ -59,6 +59,42 @@ export const syncToCloud = async (players: Player[], matches: Match[], tournamen
         let batch = writeBatch(db);
         let count = 0;
 
+        // Fetch existing IDs to find what to delete
+        const existingPlayersSnap = await getDocs(collection(db, 'players'));
+        const existingPlayerIds = new Set(existingPlayersSnap.docs.map(doc => doc.id));
+        
+        const existingMatchesSnap = await getDocs(collection(db, 'matches'));
+        const existingMatchIds = new Set(existingMatchesSnap.docs.map(doc => doc.id));
+
+        const newPlayerIds = new Set(players.map(p => p.id));
+        const newMatchIds = new Set(matches.map(m => m.id));
+
+        // Delete removed players
+        for (const id of existingPlayerIds) {
+            if (!newPlayerIds.has(id)) {
+                batch.delete(doc(db, 'players', id));
+                count++;
+                if (count === 400) {
+                    await batch.commit();
+                    batch = writeBatch(db);
+                    count = 0;
+                }
+            }
+        }
+
+        // Delete removed matches
+        for (const id of existingMatchIds) {
+            if (!newMatchIds.has(id)) {
+                batch.delete(doc(db, 'matches', id));
+                count++;
+                if (count === 400) {
+                    await batch.commit();
+                    batch = writeBatch(db);
+                    count = 0;
+                }
+            }
+        }
+
         // Upload Players
         for (const player of players) {
             const ref = doc(db, 'players', player.id);
