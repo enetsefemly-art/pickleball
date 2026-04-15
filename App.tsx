@@ -47,8 +47,6 @@ const App: React.FC = () => {
 
   // --- AUTO SYNC LOGIC ---
   const performAutoSync = async (currentPlayers: Player[], currentMatches: Match[], currentTournament: TournamentState | null) => {
-    if (!user) return;
-
     if (isSyncingRef.current) {
         pendingSyncRef.current = { players: currentPlayers, matches: currentMatches, tournament: currentTournament };
         return;
