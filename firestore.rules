@@ -119,28 +119,28 @@ service cloud.firestore {
     // ===============================================================
 
     match /players/{playerId} {
-      allow read: if isAuthenticated();
+      allow read: if true;
       allow create: if isAdmin() && isValidPlayer(request.resource.data);
       allow update: if isAdmin() && isValidPlayer(request.resource.data);
       allow delete: if isAdmin();
     }
 
     match /matches/{matchId} {
-      allow read: if isAuthenticated();
+      allow read: if true;
       allow create: if isAdmin() && isValidMatch(request.resource.data);
       allow update: if isAdmin() && isValidMatch(request.resource.data);
       allow delete: if isAdmin();
     }
 
     match /config/tournament {
-      allow read: if isAuthenticated();
+      allow read: if true;
       allow create: if isAdmin() && isValidTournament(request.resource.data);
       allow update: if isAdmin() && isValidTournament(request.resource.data);
       allow delete: if isAdmin();
     }
 
     match /config/app {
-      allow read: if isAuthenticated();
+      allow read: if true;
       allow create: if isAdmin() && isValidAppConfig(request.resource.data);
       allow update: if isAdmin() && isValidAppConfig(request.resource.data);
       allow delete: if isAdmin();

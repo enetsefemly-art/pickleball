@@ -115,46 +115,44 @@ const App: React.FC = () => {
       setPlayers(localStats);
       setTournamentState(localTournament);
 
-      if (user) {
-        setSyncStatus('syncing');
-        try {
-          const cloudData = await syncFromCloud();
-          const cloudStats = calculatePlayerStats(cloudData.players, cloudData.matches);
-          
-          setMatches(cloudData.matches);
-          setPlayers(cloudStats);
-          
-          // FIX: Only overwrite local tournament if cloud has data, or if local is empty.
-          // This prevents wiping local active tournament if cloud backend doesn't support it yet.
-          if (cloudData.tournament) {
-              setTournamentState(cloudData.tournament);
-              saveTournamentState(cloudData.tournament);
-          } else if (localTournament && localTournament.isActive) {
-              console.log("Cloud sync: Preserving local active tournament (Cloud missing data)");
-              // Keep localTournament (already set above)
-          } else {
-              setTournamentState(null);
-              saveTournamentState(null);
-          }
-          
-          if (cloudData.bannerUrl !== undefined) {
-              setBannerUrl(cloudData.bannerUrl);
-              if (cloudData.bannerUrl) {
-                  localStorage.setItem('picklepro_banner_url', cloudData.bannerUrl);
-              } else {
-                  localStorage.removeItem('picklepro_banner_url');
-              }
-          }
-          
-          saveMatches(cloudData.matches);
-          savePlayers(cloudStats);
-
-          setSyncStatus('success');
-          setTimeout(() => setSyncStatus('idle'), 2000);
-        } catch (e) {
-          console.error("Initial cloud fetch failed:", e);
-          setSyncStatus('error');
+      setSyncStatus('syncing');
+      try {
+        const cloudData = await syncFromCloud();
+        const cloudStats = calculatePlayerStats(cloudData.players, cloudData.matches);
+        
+        setMatches(cloudData.matches);
+        setPlayers(cloudStats);
+        
+        // FIX: Only overwrite local tournament if cloud has data, or if local is empty.
+        // This prevents wiping local active tournament if cloud backend doesn't support it yet.
+        if (cloudData.tournament) {
+            setTournamentState(cloudData.tournament);
+            saveTournamentState(cloudData.tournament);
+        } else if (localTournament && localTournament.isActive) {
+            console.log("Cloud sync: Preserving local active tournament (Cloud missing data)");
+            // Keep localTournament (already set above)
+        } else {
+            setTournamentState(null);
+            saveTournamentState(null);
         }
+        
+        if (cloudData.bannerUrl !== undefined) {
+            setBannerUrl(cloudData.bannerUrl);
+            if (cloudData.bannerUrl) {
+                localStorage.setItem('picklepro_banner_url', cloudData.bannerUrl);
+            } else {
+                localStorage.removeItem('picklepro_banner_url');
+            }
+        }
+        
+        saveMatches(cloudData.matches);
+        savePlayers(cloudStats);
+
+        setSyncStatus('success');
+        setTimeout(() => setSyncStatus('idle'), 2000);
+      } catch (e) {
+        console.error("Initial cloud fetch failed:", e);
+        setSyncStatus('error');
       }
     };
 
