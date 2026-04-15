@@ -95,10 +95,15 @@ export const syncToCloud = async (players: Player[], matches: Match[], tournamen
             }
         }
 
+        // Helper to remove undefined values
+        const cleanData = (obj: any) => {
+            return Object.fromEntries(Object.entries(obj).filter(([_, v]) => v !== undefined));
+        };
+
         // Upload Players
         for (const player of players) {
             const ref = doc(db, 'players', player.id);
-            batch.set(ref, player);
+            batch.set(ref, cleanData(player));
             count++;
             if (count === 400) {
                 await batch.commit();
@@ -110,7 +115,7 @@ export const syncToCloud = async (players: Player[], matches: Match[], tournamen
         // Upload Matches
         for (const match of matches) {
             const ref = doc(db, 'matches', match.id);
-            batch.set(ref, match);
+            batch.set(ref, cleanData(match));
             count++;
             if (count === 400) {
                 await batch.commit();

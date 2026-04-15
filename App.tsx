@@ -41,6 +41,8 @@ const App: React.FC = () => {
   const [isEditingBanner, setIsEditingBanner] = useState(false);
   const [bannerUrl, setBannerUrl] = useState<string | null>(() => localStorage.getItem('picklepro_banner_url'));
 
+  const isAdmin = user?.email?.toLowerCase() === 'enets.efemly@gmail.com';
+
   // --- SYNC QUEUE REFS ---
   const isSyncingRef = useRef(false);
   const pendingSyncRef = useRef<{players: Player[], matches: Match[], tournament: TournamentState | null} | null>(null);
@@ -347,13 +349,15 @@ const App: React.FC = () => {
           {/* Right Actions */}
           <div className="flex items-center gap-1.5 flex-shrink-0">
              {/* Desktop: Batch Record Button */}
-             <button 
-                onClick={() => setRecordingMode('batch')}
-                className="hidden md:flex items-center gap-2 bg-orange-600 hover:bg-orange-700 text-white px-3 py-1.5 rounded-md font-bold text-sm transition-colors shadow-md border border-orange-500 mr-2"
-             >
-                <Plus size={16} strokeWidth={3} />
-                Ghi Trận Chung
-             </button>
+             {isAdmin && (
+                 <button 
+                    onClick={() => setRecordingMode('batch')}
+                    className="hidden md:flex items-center gap-2 bg-orange-600 hover:bg-orange-700 text-white px-3 py-1.5 rounded-md font-bold text-sm transition-colors shadow-md border border-orange-500 mr-2"
+                 >
+                    <Plus size={16} strokeWidth={3} />
+                    Ghi Trận Chung
+                 </button>
+             )}
 
              {/* Mobile: Top Header Navigation Shortcuts */}
              <div className="md:hidden flex items-center gap-0.5">
@@ -388,13 +392,15 @@ const App: React.FC = () => {
              <div className="w-px h-6 bg-slate-700 mx-1"></div>
 
              {/* Banner Settings Button */}
-             <button
-                onClick={() => setIsEditingBanner(!isEditingBanner)}
-                className={`p-2 rounded-full transition-colors ${isEditingBanner ? 'bg-pickle-500 text-white' : 'hover:bg-slate-800 text-slate-400 hover:text-white'}`}
-                title="Cập nhật Banner"
-             >
-                <Image size={20} />
-             </button>
+             {isAdmin && (
+                 <button
+                    onClick={() => setIsEditingBanner(!isEditingBanner)}
+                    className={`p-2 rounded-full transition-colors ${isEditingBanner ? 'bg-pickle-500 text-white' : 'hover:bg-slate-800 text-slate-400 hover:text-white'}`}
+                    title="Cập nhật Banner"
+                 >
+                    <Image size={20} />
+                 </button>
+             )}
 
              <div className="w-px h-6 bg-slate-700 mx-1"></div>
 
@@ -440,7 +446,7 @@ const App: React.FC = () => {
                     <RecentMatches 
                         matches={matches} 
                         players={players} 
-                        onDeleteMatch={handleDeleteMatch} 
+                        onDeleteMatch={isAdmin ? handleDeleteMatch : undefined} 
                     />
                 </div>
             )}
@@ -456,18 +462,18 @@ const App: React.FC = () => {
                     players={players} 
                     matches={matches} 
                     tournamentData={tournamentState}
-                    onUpdateTournament={handleUpdateTournamentState}
-                    onSaveMatches={handleTournamentSaveMatch} 
-                    onDeleteMatch={handleDeleteMatch}
+                    onUpdateTournament={isAdmin ? handleUpdateTournamentState : undefined}
+                    onSaveMatches={isAdmin ? handleTournamentSaveMatch : undefined} 
+                    onDeleteMatch={isAdmin ? handleDeleteMatch : undefined}
                 />
             )}
             
             {activeTab === 'players' && (
                 <PlayerManager 
                     players={players} 
-                    onAddPlayer={handleAddPlayer} 
-                    onDeletePlayer={handleDeletePlayer}
-                    onToggleActive={handleTogglePlayerStatus}
+                    onAddPlayer={isAdmin ? handleAddPlayer : undefined} 
+                    onDeletePlayer={isAdmin ? handleDeletePlayer : undefined}
+                    onToggleActive={isAdmin ? handleTogglePlayerStatus : undefined}
                 />
             )}
         </div>
@@ -516,12 +522,14 @@ const App: React.FC = () => {
       </div>
 
       {/* Mobile Floating Action Button (Only Visible on Mobile now) */}
-      <button
-        onClick={() => setRecordingMode('batch')}
-        className="md:hidden fixed bottom-6 left-1/2 -translate-x-1/2 bg-slate-900 hover:bg-slate-800 text-white p-4 rounded-full shadow-xl shadow-slate-900/30 transition-all hover:scale-110 z-50 group border-4 border-slate-50"
-      >
-        <PlusCircle className="w-8 h-8 text-pickle-400" />
-      </button>
+      {isAdmin && (
+          <button
+            onClick={() => setRecordingMode('batch')}
+            className="md:hidden fixed bottom-6 left-1/2 -translate-x-1/2 bg-slate-900 hover:bg-slate-800 text-white p-4 rounded-full shadow-xl shadow-slate-900/30 transition-all hover:scale-110 z-50 group border-4 border-slate-50"
+          >
+            <PlusCircle className="w-8 h-8 text-pickle-400" />
+          </button>
+      )}
 
       {/* Batch Match Recorder Modal */}
       {recordingMode === 'batch' && (
