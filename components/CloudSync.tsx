@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Player, Match, TournamentState } from '../types';
-import { syncToCloud, syncFromCloud } from '../services/googleSheetService';
+import { syncToCloud, syncFromCloud } from '../services/firebaseService';
 import { Cloud, Download, Upload, AlertCircle, Loader2, Terminal } from 'lucide-react';
 import { getTournamentState } from '../services/storageService';
 

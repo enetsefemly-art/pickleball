@@ -1,0 +1,149 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: players
+    // Document ID: {playerId}
+    // Fields:
+    //   - id: string
+    //   - name: string
+    //   - avatar: string (optional)
+    //   - initialPoints: number (optional)
+    //   - matchesPlayed: number
+    //   - wins: number
+    //   - losses: number
+    //   - pointsScored: number
+    //   - pointsConceded: number
+    //   - totalRankingPoints: number
+    //   - tournamentRating: number (optional)
+    //   - championships: number (optional)
+    //   - isActive: boolean (optional)
+    //
+    // Collection: matches
+    // Document ID: {matchId}
+    // Fields:
+    //   - id: string
+    //   - type: string ('betting', 'tournament', 'tour')
+    //   - date: string
+    //   - team1: list of strings
+    //   - team2: list of strings
+    //   - score1: number
+    //   - score2: number
+    //   - winner: number (1 or 2)
+    //   - rankingPoints: number (optional)
+    //   - isHopeStar: boolean (optional)
+    //   - hopeStarTeam1: boolean (optional)
+    //   - hopeStarTeam2: boolean (optional)
+    //
+    // Collection: config
+    // Document ID: tournament
+    // Fields:
+    //   - isActive: boolean
+    //   - mode: string (optional)
+    //   - tournamentDate: string
+    //   - teams: string (JSON)
+    //   - schedule: string (JSON)
+    //   - groups: string (JSON)
+    //   - groupSchedule: string (JSON)
+    //
+    // Document ID: app
+    // Fields:
+    //   - bannerUrl: string (optional)
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && request.auth.token.email.lower() == "enets.efemly@gmail.com" && request.auth.token.email_verified == true;
+    }
+
+    function isValidPlayer(data) {
+      return data.keys().hasAll(['id', 'name', 'matchesPlayed', 'wins', 'losses', 'pointsScored', 'pointsConceded', 'totalRankingPoints']) &&
+             data.id is string && data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             data.matchesPlayed is number && data.matchesPlayed >= 0 &&
+             data.wins is number && data.wins >= 0 &&
+             data.losses is number && data.losses >= 0 &&
+             data.pointsScored is number && data.pointsScored >= 0 &&
+             data.pointsConceded is number && data.pointsConceded >= 0 &&
+             data.totalRankingPoints is number &&
+             (!('avatar' in data) || (data.avatar is string && data.avatar.size() < 1000)) &&
+             (!('initialPoints' in data) || data.initialPoints is number) &&
+             (!('tournamentRating' in data) || data.tournamentRating is number) &&
+             (!('championships' in data) || data.championships is number) &&
+             (!('isActive' in data) || data.isActive is bool);
+    }
+
+    function isValidMatch(data) {
+      return data.keys().hasAll(['id', 'type', 'date', 'team1', 'team2', 'score1', 'score2', 'winner']) &&
+             data.id is string &&
+             data.type is string && data.type in ['betting', 'tournament', 'tour'] &&
+             data.date is string && data.date.size() < 50 &&
+             data.team1 is list && data.team1.size() <= 10 &&
+             data.team2 is list && data.team2.size() <= 10 &&
+             data.score1 is number && data.score1 >= 0 &&
+             data.score2 is number && data.score2 >= 0 &&
+             data.winner is number && data.winner in [1, 2] &&
+             (!('rankingPoints' in data) || data.rankingPoints is number) &&
+             (!('isHopeStar' in data) || data.isHopeStar is bool) &&
+             (!('hopeStarTeam1' in data) || data.hopeStarTeam1 is bool) &&
+             (!('hopeStarTeam2' in data) || data.hopeStarTeam2 is bool);
+    }
+
+    function isValidTournament(data) {
+      return data.keys().hasAll(['isActive', 'tournamentDate']) &&
+             data.isActive is bool &&
+             data.tournamentDate is string && data.tournamentDate.size() < 50 &&
+             (!('mode' in data) || (data.mode is string && data.mode in ['round-robin', 'team-match'])) &&
+             (!('teams' in data) || (data.teams is string && data.teams.size() < 100000)) &&
+             (!('schedule' in data) || (data.schedule is string && data.schedule.size() < 100000)) &&
+             (!('groups' in data) || (data.groups is string && data.groups.size() < 100000)) &&
+             (!('groupSchedule' in data) || (data.groupSchedule is string && data.groupSchedule.size() < 100000));
+    }
+
+    function isValidAppConfig(data) {
+      return !('bannerUrl' in data) || (data.bannerUrl is string && data.bannerUrl.size() < 1000);
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /players/{playerId} {
+      allow read: if isAuthenticated();
+      allow create: if isAdmin() && isValidPlayer(request.resource.data);
+      allow update: if isAdmin() && isValidPlayer(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    match /matches/{matchId} {
+      allow read: if isAuthenticated();
+      allow create: if isAdmin() && isValidMatch(request.resource.data);
+      allow update: if isAdmin() && isValidMatch(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    match /config/tournament {
+      allow read: if isAuthenticated();
+      allow create: if isAdmin() && isValidTournament(request.resource.data);
+      allow update: if isAdmin() && isValidTournament(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    match /config/app {
+      allow read: if isAuthenticated();
+      allow create: if isAdmin() && isValidAppConfig(request.resource.data);
+      allow update: if isAdmin() && isValidAppConfig(request.resource.data);
+      allow delete: if isAdmin();
+    }
+  }
+}

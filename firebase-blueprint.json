@@ -1,0 +1,86 @@
+{
+  "entities": {
+    "Player": {
+      "title": "Player",
+      "description": "Represents a player in the system.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique identifier for the player." },
+        "name": { "type": "string", "description": "Name of the player." },
+        "avatar": { "type": "string", "description": "URL to the player's avatar." },
+        "initialPoints": { "type": "number", "description": "Initial rating points." },
+        "matchesPlayed": { "type": "number" },
+        "wins": { "type": "number" },
+        "losses": { "type": "number" },
+        "pointsScored": { "type": "number" },
+        "pointsConceded": { "type": "number" },
+        "totalRankingPoints": { "type": "number" },
+        "tournamentRating": { "type": "number" },
+        "championships": { "type": "number" },
+        "isActive": { "type": "boolean" }
+      },
+      "required": ["id", "name", "matchesPlayed", "wins", "losses", "pointsScored", "pointsConceded", "totalRankingPoints"]
+    },
+    "Match": {
+      "title": "Match",
+      "description": "Represents a match between two teams.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "type": { "type": "string", "enum": ["betting", "tournament", "tour"] },
+        "date": { "type": "string", "format": "date-time" },
+        "team1": { "type": "array", "items": { "type": "string" } },
+        "team2": { "type": "array", "items": { "type": "string" } },
+        "score1": { "type": "number" },
+        "score2": { "type": "number" },
+        "winner": { "type": "number", "enum": [1, 2] },
+        "rankingPoints": { "type": "number" },
+        "isHopeStar": { "type": "boolean" },
+        "hopeStarTeam1": { "type": "boolean" },
+        "hopeStarTeam2": { "type": "boolean" }
+      },
+      "required": ["id", "type", "date", "team1", "team2", "score1", "score2", "winner"]
+    },
+    "TournamentState": {
+      "title": "TournamentState",
+      "description": "Represents the active tournament state.",
+      "type": "object",
+      "properties": {
+        "isActive": { "type": "boolean" },
+        "mode": { "type": "string", "enum": ["round-robin", "team-match"] },
+        "tournamentDate": { "type": "string", "format": "date-time" },
+        "teams": { "type": "string", "description": "JSON stringified teams" },
+        "schedule": { "type": "string", "description": "JSON stringified schedule" },
+        "groups": { "type": "string", "description": "JSON stringified groups" },
+        "groupSchedule": { "type": "string", "description": "JSON stringified group schedule" }
+      },
+      "required": ["isActive", "tournamentDate"]
+    },
+    "AppConfig": {
+      "title": "AppConfig",
+      "description": "Global application configuration.",
+      "type": "object",
+      "properties": {
+        "bannerUrl": { "type": "string" }
+      }
+    }
+  },
+  "firestore": {
+    "/players/{playerId}": {
+      "schema": { "$ref": "#/entities/Player" },
+      "description": "Collection of players."
+    },
+    "/matches/{matchId}": {
+      "schema": { "$ref": "#/entities/Match" },
+      "description": "Collection of matches."
+    },
+    "/config/tournament": {
+      "schema": { "$ref": "#/entities/TournamentState" },
+      "description": "Singleton document for tournament state."
+    },
+    "/config/app": {
+      "schema": { "$ref": "#/entities/AppConfig" },
+      "description": "Singleton document for app config (e.g. banner)."
+    }
+  }
+}

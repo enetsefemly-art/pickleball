@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Image, X, Check, Loader2 } from 'lucide-react';
-import { saveBannerToCloud } from '../services/googleSheetService';
+import { saveBannerToCloud } from '../services/firebaseService';
 
 const BANNER_STORAGE_KEY = 'picklepro_banner_url';
 

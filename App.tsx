@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Player, Match, TabView, TournamentState } from './types';
 import { getPlayers, getMatches, saveMatches, savePlayers, calculatePlayerStats, getTournamentState, saveTournamentState } from './services/storageService';
-import { getApiUrl, syncToCloud, syncFromCloud } from './services/googleSheetService';
+import { syncToCloud, syncFromCloud } from './services/firebaseService';
+import { auth } from './firebase';
+import { signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut, User } from 'firebase/auth';
 import { Leaderboard } from './components/Leaderboard';
 import { BatchMatchRecorder } from './components/BatchMatchRecorder';
 import { DashboardStats } from './components/DashboardStats';
@@ -11,14 +13,16 @@ import { TournamentManager } from './components/TournamentManager';
 import { Analysis } from './components/Analysis';
 import { AiMatchmaker } from './components/AiMatchmaker'; 
 import { CloudSync } from './components/CloudSync';
-import { ChangelogModal } from './components/ChangelogModal'; 
 import { Banner } from './components/Banner';
-import { LayoutDashboard, History, Trophy, PlusCircle, Zap, Cloud, Loader2, CheckCircle2, AlertCircle, CloudOff, Swords, Scale, Plus, BrainCircuit, Users, Bell, Image } from 'lucide-react';
+import { LayoutDashboard, History, Trophy, PlusCircle, Zap, Cloud, Loader2, CheckCircle2, AlertCircle, CloudOff, Swords, Scale, Plus, BrainCircuit, Users, Bell, Image, LogOut, LogIn } from 'lucide-react';
 
 // Current App Version - Bump this to trigger red dot for users
 const APP_VERSION = '3.3.2'; // Bumped for Tournament Sync Fix
 
 const App: React.FC = () => {
+  const [user, setUser] = useState<User | null>(null);
+  const [isAuthReady, setIsAuthReady] = useState(false);
+
   const [players, setPlayers] = useState<Player[]>([]);
   const [matches, setMatches] = useState<Match[]>([]);
   // Manage Tournament State Globally
@@ -33,10 +37,6 @@ const App: React.FC = () => {
   const [isSyncOpen, setIsSyncOpen] = useState(false);
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'success' | 'error'>('idle');
 
-  // Changelog State
-  const [showChangelog, setShowChangelog] = useState(false);
-  const [hasNewUpdate, setHasNewUpdate] = useState(false);
-
   // Banner State
   const [isEditingBanner, setIsEditingBanner] = useState(false);
   const [bannerUrl, setBannerUrl] = useState<string | null>(() => localStorage.getItem('picklepro_banner_url'));
@@ -47,8 +47,7 @@ const App: React.FC = () => {
 
   // --- AUTO SYNC LOGIC ---
   const performAutoSync = async (currentPlayers: Player[], currentMatches: Match[], currentTournament: TournamentState | null) => {
-    const url = getApiUrl();
-    if (!url) return;
+    if (!user) return;
 
     if (isSyncingRef.current) {
         pendingSyncRef.current = { players: currentPlayers, matches: currentMatches, tournament: currentTournament };
@@ -75,8 +74,37 @@ const App: React.FC = () => {
     }
   };
 
+  // --- AUTHENTICATION ---
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+      setIsAuthReady(true);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const handleLogin = async () => {
+    const provider = new GoogleAuthProvider();
+    try {
+      await signInWithPopup(auth, provider);
+    } catch (error) {
+      console.error("Login failed", error);
+      alert("Đăng nhập thất bại. Vui lòng thử lại.");
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+    } catch (error) {
+      console.error("Logout failed", error);
+    }
+  };
+
   // --- INITIALIZATION ---
   useEffect(() => {
+    if (!isAuthReady) return;
+
     const initData = async () => {
       const localMatches = getMatches();
       const localPlayers = getPlayers();
@@ -87,14 +115,7 @@ const App: React.FC = () => {
       setPlayers(localStats);
       setTournamentState(localTournament);
 
-      // Check Version for Changelog
-      const lastSeenVersion = localStorage.getItem('picklepro_last_version');
-      if (lastSeenVersion !== APP_VERSION) {
-          setHasNewUpdate(true);
-      }
-
-      const url = getApiUrl();
-      if (url) {
+      if (user) {
         setSyncStatus('syncing');
         try {
           const cloudData = await syncFromCloud();
@@ -138,7 +159,7 @@ const App: React.FC = () => {
     };
 
     initData();
-  }, []);
+  }, [user, isAuthReady]);
 
   // --- HANDLERS ---
   const handleCloudDataLoaded = (newPlayers: Player[], newMatches: Match[], newTournament: TournamentState | null) => {
@@ -268,12 +289,6 @@ const App: React.FC = () => {
       performAutoSync(updatedPlayers, matches, tournamentState);
   };
 
-  const handleOpenChangelog = () => {
-      setShowChangelog(true);
-      setHasNewUpdate(false);
-      localStorage.setItem('picklepro_last_version', APP_VERSION);
-  };
-
   // --- COMPONENTS ---
   
   const HeaderNavBtn = ({ tab, label }: { tab: any; label: string }) => (
@@ -290,8 +305,7 @@ const App: React.FC = () => {
   );
 
   const SyncStatusIcon = () => {
-      const url = getApiUrl();
-      if (!url) return <CloudOff className="w-5 h-5 text-slate-500" />;
+      if (!user) return <CloudOff className="w-5 h-5 text-slate-500" />;
       switch (syncStatus) {
           case 'syncing': return <Loader2 className="w-5 h-5 text-blue-400 animate-spin" />;
           case 'success': return <CheckCircle2 className="w-5 h-5 text-green-400" />;
@@ -384,26 +398,28 @@ const App: React.FC = () => {
                 <Image size={20} />
              </button>
 
-             {/* Changelog Notification Button */}
-             <button
-                onClick={handleOpenChangelog}
-                className="p-2 rounded-full hover:bg-slate-800 transition-colors relative"
-                title="Thông báo cập nhật"
-             >
-                <Bell className={`w-5 h-5 ${hasNewUpdate ? 'text-yellow-400' : 'text-slate-400'}`} />
-                {hasNewUpdate && (
-                    <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full animate-pulse border border-slate-900"></span>
-                )}
-             </button>
+             <div className="w-px h-6 bg-slate-700 mx-1"></div>
 
-             <button 
-                onClick={() => setIsSyncOpen(true)}
-                className="p-2 rounded-full hover:bg-slate-800 transition-colors relative"
-                title="Đồng bộ Cloud"
-             >
-                <SyncStatusIcon />
-                {syncStatus === 'error' && <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full animate-ping" />}
-             </button>
+             {/* Auth Button */}
+             {user ? (
+                 <button 
+                    onClick={handleLogout}
+                    className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors text-sm font-medium"
+                    title="Đăng xuất"
+                 >
+                    <LogOut size={16} />
+                    <span className="hidden sm:inline">{user.email?.split('@')[0]}</span>
+                 </button>
+             ) : (
+                 <button 
+                    onClick={handleLogin}
+                    className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-pickle-600 hover:bg-pickle-500 text-white transition-colors text-sm font-bold shadow-md"
+                    title="Đăng nhập"
+                 >
+                    <LogIn size={16} />
+                    <span className="hidden sm:inline">Đăng nhập</span>
+                 </button>
+             )}
           </div>
         </div>
       </header>
@@ -532,11 +548,6 @@ const App: React.FC = () => {
             onDataLoaded={handleCloudDataLoaded}
             onClose={() => setIsSyncOpen(false)}
         />
-      )}
-
-      {/* Changelog Modal */}
-      {showChangelog && (
-        <ChangelogModal onClose={() => setShowChangelog(false)} />
       )}
 
     </div>
