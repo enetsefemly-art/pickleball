@@ -95,9 +95,20 @@ export const syncToCloud = async (players: Player[], matches: Match[], tournamen
             }
         }
 
-        // Helper to remove undefined values
+        // Helper to remove undefined and null values to pass Firestore rules
         const cleanData = (obj: any) => {
-            return Object.fromEntries(Object.entries(obj).filter(([_, v]) => v !== undefined));
+            const result = {} as any;
+            for (const [key, value] of Object.entries(obj)) {
+                // Keep values that are defined, not null, and not NaN.
+                if (value !== undefined && value !== null) {
+                    if (typeof value === 'number' && Number.isNaN(value)) {
+                        result[key] = 0; // Fallback NaN to 0 to pass rules
+                    } else {
+                        result[key] = value;
+                    }
+                }
+            }
+            return result;
         };
 
         // Upload Players
@@ -137,7 +148,7 @@ export const syncToCloud = async (players: Player[], matches: Match[], tournamen
                 groups: tournament.groups ? JSON.stringify(tournament.groups) : null,
                 groupSchedule: tournament.groupSchedule ? JSON.stringify(tournament.groupSchedule) : null
             };
-            await setDoc(doc(db, 'config', 'tournament'), tDoc);
+            await setDoc(doc(db, 'config', 'tournament'), cleanData(tDoc));
         } else {
             // If tournament is null, we might want to clear it, but for now we just don't update it
         }

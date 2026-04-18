@@ -116,9 +116,37 @@ const App: React.FC = () => {
       setSyncStatus('syncing');
       try {
         const cloudData = await syncFromCloud();
-        const cloudStats = calculatePlayerStats(cloudData.players, cloudData.matches);
         
-        setMatches(cloudData.matches);
+        // Merge strategy: Cloud is source of truth, but if we have local matches that 
+        // aren't on Cloud (due to aborted syncs), we should PRESUMABLY push them up
+        const cloudMatchIds = new Set(cloudData.matches.map(m => m.id));
+        const unsyncedLocalMatches = localMatches.filter(m => !cloudMatchIds.has(m.id));
+        
+        const cloudPlayerIds = new Set(cloudData.players.map(p => p.id));
+        const unsyncedLocalPlayers = localPlayers.filter(p => !cloudPlayerIds.has(p.id));
+
+        let finalMatches = cloudData.matches;
+        let finalPlayers = cloudData.players;
+        let requiresUpSync = false;
+
+        // Merge matches
+        if (unsyncedLocalMatches.length > 0) {
+            console.log(`Found ${unsyncedLocalMatches.length} unsynced local matches.`);
+            finalMatches = [...cloudData.matches, ...unsyncedLocalMatches];
+            finalMatches.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+            requiresUpSync = true;
+        }
+
+        // Merge players
+        if (unsyncedLocalPlayers.length > 0) {
+            console.log(`Found ${unsyncedLocalPlayers.length} unsynced local players.`);
+            finalPlayers = [...cloudData.players, ...unsyncedLocalPlayers];
+            requiresUpSync = true;
+        }
+
+        const cloudStats = calculatePlayerStats(finalPlayers, finalMatches);
+        
+        setMatches(finalMatches);
         setPlayers(cloudStats);
         
         // FIX: Only overwrite local tournament if cloud has data, or if local is empty.
@@ -143,11 +171,16 @@ const App: React.FC = () => {
             }
         }
         
-        saveMatches(cloudData.matches);
+        saveMatches(finalMatches);
         savePlayers(cloudStats);
 
         setSyncStatus('success');
         setTimeout(() => setSyncStatus('idle'), 2000);
+        
+        if (requiresUpSync) {
+            // Push the merged state back to cloud
+            performAutoSync(cloudStats, finalMatches, getTournamentState());
+        }
       } catch (e) {
         console.error("Initial cloud fetch failed:", e);
         setSyncStatus('error');
@@ -186,7 +219,7 @@ const App: React.FC = () => {
       setSyncStatus('success');
   };
 
-  const handleSaveBatchMatches = (matchesData: Omit<Match, 'id'>[]) => {
+  const handleSaveBatchMatches = async (matchesData: Omit<Match, 'id'>[]) => {
     const newMatches: Match[] = matchesData.map((m, index) => ({
         ...m,
         id: (Date.now() + index).toString()
@@ -200,11 +233,11 @@ const App: React.FC = () => {
     saveMatches(updatedMatches);
     savePlayers(updatedPlayers);
 
-    performAutoSync(updatedPlayers, updatedMatches, tournamentState);
-
-    alert("Lưu kết quả thành công!");
     setRecordingMode('none');
     setActiveTab('matches');
+
+    await performAutoSync(updatedPlayers, updatedMatches, tournamentState);
+    alert("Đã đồng bộ kết quả lên Cloud!");
   };
 
   // Called when a match is finished in tournament
