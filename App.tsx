@@ -1,6 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Player, Match, TabView, TournamentState } from './types';
-import { getPlayers, getMatches, saveMatches, savePlayers, calculatePlayerStats, getTournamentState, saveTournamentState } from './services/storageService';
+import { 
+    getPlayers, getMatches, saveMatches, savePlayers, 
+    calculatePlayerStats, getTournamentState, saveTournamentState,
+    getDeletedMatchIds, addDeletedMatchId, clearDeletedMatchIds,
+    getDeletedPlayerIds, addDeletedPlayerId, clearDeletedPlayerIds
+} from './services/storageService';
 import { syncToCloud, syncFromCloud } from './services/firebaseService';
 import { auth } from './firebase';
 import { signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut, User } from 'firebase/auth';
@@ -57,6 +62,8 @@ const App: React.FC = () => {
 
     try {
         await syncToCloud(currentPlayers, currentMatches, currentTournament);
+        clearDeletedMatchIds();
+        clearDeletedPlayerIds();
         setSyncStatus('success');
         setTimeout(() => setSyncStatus(prev => prev === 'success' ? 'idle' : prev), 2000);
     } catch (e) {
@@ -119,20 +126,32 @@ const App: React.FC = () => {
         
         // Merge strategy: Cloud is source of truth, but if we have local matches that 
         // aren't on Cloud (due to aborted syncs), we should PRESUMABLY push them up
-        const cloudMatchIds = new Set(cloudData.matches.map(m => m.id));
+        // Filter out tracked deleted items from cloudData
+        const deletedMatchIdsTracker = new Set(getDeletedMatchIds());
+        const cloudMatchesFiltered = cloudData.matches.filter(m => !deletedMatchIdsTracker.has(m.id));
+
+        const deletedPlayerIdsTracker = new Set(getDeletedPlayerIds());
+        const cloudPlayersFiltered = cloudData.players.filter(p => !deletedPlayerIdsTracker.has(p.id));
+
+        const cloudMatchIds = new Set(cloudMatchesFiltered.map(m => m.id));
         const unsyncedLocalMatches = localMatches.filter(m => !cloudMatchIds.has(m.id));
         
-        const cloudPlayerIds = new Set(cloudData.players.map(p => p.id));
+        const cloudPlayerIds = new Set(cloudPlayersFiltered.map(p => p.id));
         const unsyncedLocalPlayers = localPlayers.filter(p => !cloudPlayerIds.has(p.id));
 
-        let finalMatches = cloudData.matches;
-        let finalPlayers = cloudData.players;
+        let finalMatches = cloudMatchesFiltered;
+        let finalPlayers = cloudPlayersFiltered;
         let requiresUpSync = false;
+        
+        // If we filtered out things from cloudData, we must push the deletion back up
+        if (cloudData.matches.length !== cloudMatchesFiltered.length || cloudData.players.length !== cloudPlayersFiltered.length) {
+            requiresUpSync = true;
+        }
 
         // Merge matches
         if (unsyncedLocalMatches.length > 0) {
             console.log(`Found ${unsyncedLocalMatches.length} unsynced local matches.`);
-            finalMatches = [...cloudData.matches, ...unsyncedLocalMatches];
+            finalMatches = [...cloudMatchesFiltered, ...unsyncedLocalMatches];
             finalMatches.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
             requiresUpSync = true;
         }
@@ -140,7 +159,7 @@ const App: React.FC = () => {
         // Merge players
         if (unsyncedLocalPlayers.length > 0) {
             console.log(`Found ${unsyncedLocalPlayers.length} unsynced local players.`);
-            finalPlayers = [...cloudData.players, ...unsyncedLocalPlayers];
+            finalPlayers = [...cloudPlayersFiltered, ...unsyncedLocalPlayers];
             requiresUpSync = true;
         }
 
@@ -241,7 +260,7 @@ const App: React.FC = () => {
   };
 
   // Called when a match is finished in tournament
-  const handleTournamentSaveMatch = (matchesData: (Omit<Match, 'id'> & { id?: string })[]) => {
+  const handleTournamentSaveMatch = async (matchesData: (Omit<Match, 'id'> & { id?: string })[]) => {
       const newMatches: Match[] = matchesData.map((m, index) => ({
           ...m,
           id: m.id || (Date.now() + index).toString()
@@ -267,10 +286,11 @@ const App: React.FC = () => {
       performAutoSync(players, matches, newState);
   };
 
-  const handleDeleteMatch = (id: string) => {
+  const handleDeleteMatch = async (id: string) => {
      const updatedMatches = matches.filter(m => m.id !== id);
      if (matches.length === updatedMatches.length) return;
 
+     addDeletedMatchId(id); // Traack deletion
      const updatedPlayers = calculatePlayerStats(players, updatedMatches);
 
      setMatches(updatedMatches);
@@ -278,10 +298,10 @@ const App: React.FC = () => {
      saveMatches(updatedMatches);
      savePlayers(updatedPlayers);
 
-     performAutoSync(updatedPlayers, updatedMatches, tournamentState);
+     await performAutoSync(updatedPlayers, updatedMatches, tournamentState);
   };
 
-  const handleAddPlayer = (name: string, initialPoints: number) => {
+  const handleAddPlayer = async (name: string, initialPoints: number) => {
     const newPlayer: Player = {
       id: Date.now().toString(),
       name,
@@ -299,23 +319,26 @@ const App: React.FC = () => {
     const updatedPlayers = [...players, newPlayer];
     setPlayers(updatedPlayers);
     savePlayers(updatedPlayers);
-    performAutoSync(updatedPlayers, matches, tournamentState);
+    await performAutoSync(updatedPlayers, matches, tournamentState);
   };
 
-  const handleDeletePlayer = (id: string) => {
+  const handleDeletePlayer = async (id: string) => {
     const updatedPlayers = players.filter(p => p.id !== id);
+    if(updatedPlayers.length === players.length) return;
+
+    addDeletedPlayerId(id); // Track deletion
     setPlayers(updatedPlayers);
     savePlayers(updatedPlayers);
-    performAutoSync(updatedPlayers, matches, tournamentState);
+    await performAutoSync(updatedPlayers, matches, tournamentState);
   };
 
-  const handleTogglePlayerStatus = (id: string) => {
+  const handleTogglePlayerStatus = async (id: string) => {
       const updatedPlayers = players.map(p => 
           p.id === id ? { ...p, isActive: !p.isActive } : p
       );
       setPlayers(updatedPlayers);
       savePlayers(updatedPlayers);
-      performAutoSync(updatedPlayers, matches, tournamentState);
+      await performAutoSync(updatedPlayers, matches, tournamentState);
   };
 
   // --- COMPONENTS ---

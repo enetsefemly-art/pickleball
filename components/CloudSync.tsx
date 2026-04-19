@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Player, Match, TournamentState } from '../types';
 import { syncToCloud, syncFromCloud } from '../services/firebaseService';
 import { Cloud, Download, Upload, AlertCircle, Loader2, Terminal } from 'lucide-react';
-import { getTournamentState } from '../services/storageService';
+import { getTournamentState, clearDeletedMatchIds, clearDeletedPlayerIds } from '../services/storageService';
 
 interface CloudSyncProps {
   players: Player[];
@@ -45,7 +45,9 @@ export const CloudSync: React.FC<CloudSyncProps> = ({ players, matches, onDataLo
       }
 
       await syncToCloud(players, matches, currentTournament);
-      addLog("✅ TẢI LÊN THÀNH CÔNG: Dữ liệu đã lưu trên Google Sheet.");
+      clearDeletedMatchIds();
+      clearDeletedPlayerIds();
+      addLog("✅ TẢI LÊN THÀNH CÔNG: Dữ liệu đã lưu trên Cloud.");
     } catch (e) {
       addLog("❌ LỖI: " + (e instanceof Error ? e.message : String(e)));
     } finally {
@@ -77,6 +79,8 @@ export const CloudSync: React.FC<CloudSyncProps> = ({ players, matches, onDataLo
     try {
       const data = await syncFromCloud();
       addLog(`✅ Đã nhận: ${data.players.length} người chơi, ${data.matches.length} trận.`);
+      clearDeletedMatchIds();
+      clearDeletedPlayerIds();
       
       if (data.tournament && data.tournament.isActive) {
           const matchCount = (data.tournament.schedule || []).length + (data.tournament.groupSchedule || []).length;

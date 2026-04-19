@@ -49,6 +49,9 @@ export interface RatingCalculationLog {
   }[];
 }
 
+const DELETED_MATCHES_KEY = 'picklepro_deleted_matches';
+const DELETED_PLAYERS_KEY = 'picklepro_deleted_players';
+
 export const getPlayers = (): Player[] => {
   const data = localStorage.getItem(PLAYERS_KEY);
   if (!data) return [];
@@ -67,6 +70,36 @@ export const getMatches = (): Match[] => {
 
 export const saveMatches = (matches: Match[]) => {
   localStorage.setItem(MATCHES_KEY, JSON.stringify(matches));
+};
+
+export const getDeletedMatchIds = (): string[] => {
+    const data = localStorage.getItem(DELETED_MATCHES_KEY);
+    return data ? JSON.parse(data) : [];
+};
+
+export const addDeletedMatchId = (id: string) => {
+    const ids = new Set(getDeletedMatchIds());
+    ids.add(id);
+    localStorage.setItem(DELETED_MATCHES_KEY, JSON.stringify(Array.from(ids)));
+};
+
+export const clearDeletedMatchIds = () => {
+    localStorage.removeItem(DELETED_MATCHES_KEY);
+};
+
+export const getDeletedPlayerIds = (): string[] => {
+    const data = localStorage.getItem(DELETED_PLAYERS_KEY);
+    return data ? JSON.parse(data) : [];
+};
+
+export const addDeletedPlayerId = (id: string) => {
+    const ids = new Set(getDeletedPlayerIds());
+    ids.add(id);
+    localStorage.setItem(DELETED_PLAYERS_KEY, JSON.stringify(Array.from(ids)));
+};
+
+export const clearDeletedPlayerIds = () => {
+    localStorage.removeItem(DELETED_PLAYERS_KEY);
 };
 
 export const getTournamentState = (): TournamentState | null => {

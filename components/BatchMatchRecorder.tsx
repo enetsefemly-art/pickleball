@@ -30,9 +30,11 @@ export const BatchMatchRecorder: React.FC<BatchMatchRecorderProps> = ({ players,
 
   const [error, setError] = useState<string | null>(null);
 
-  // Sort players alphabetically for dropdowns
+  // Sort and filter active players alphabetically for dropdowns
   const sortedPlayers = useMemo(() => {
-    return [...players].sort((a, b) => a.name.localeCompare(b.name));
+    return [...players]
+      .filter(p => p.isActive !== false) // Backward compat: default is true if undefined
+      .sort((a, b) => a.name.localeCompare(b.name));
   }, [players]);
 
   const addRow = () => {
