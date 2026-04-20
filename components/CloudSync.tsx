@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Player, Match, TournamentState } from '../types';
 import { syncToCloud, syncFromCloud } from '../services/firebaseService';
 import { Cloud, Download, Upload, AlertCircle, Loader2, Terminal } from 'lucide-react';
-import { getTournamentState, getDeletedMatchIds, getDeletedPlayerIds, removeDeletedMatchIds, removeDeletedPlayerIds } from '../services/storageService';
+import { getTournamentState, getDeletedMatchIds, getDeletedPlayerIds, removeDeletedMatchIds, removeDeletedPlayerIds, setLastSyncTime } from '../services/storageService';
 
 interface CloudSyncProps {
   players: Player[];
@@ -49,6 +49,8 @@ export const CloudSync: React.FC<CloudSyncProps> = ({ players, matches, onDataLo
 
       await syncToCloud(players, matches, currentTournament);
       
+      setLastSyncTime(Date.now());
+      
       removeDeletedMatchIds(matchIdsToClear);
       removeDeletedPlayerIds(playerIdsToClear);
       
@@ -82,10 +84,12 @@ export const CloudSync: React.FC<CloudSyncProps> = ({ players, matches, onDataLo
     addLog("Đang kết nối máy chủ Google...");
 
     try {
+      const syncStartTime = Date.now();
       const matchIdsToClear = getDeletedMatchIds();
       const playerIdsToClear = getDeletedPlayerIds();
 
       const data = await syncFromCloud();
+      setLastSyncTime(syncStartTime);
       addLog(`✅ Đã nhận: ${data.players.length} người chơi, ${data.matches.length} trận.`);
       removeDeletedMatchIds(matchIdsToClear);
       removeDeletedPlayerIds(playerIdsToClear);

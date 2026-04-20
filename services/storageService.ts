@@ -122,6 +122,17 @@ export const clearDeletedPlayerIds = () => {
     localStorage.removeItem(DELETED_PLAYERS_KEY);
 };
 
+const LAST_SYNC_TIME_KEY = 'picklepro_last_sync_time';
+
+export const getLastSyncTime = (): number => {
+    const data = localStorage.getItem(LAST_SYNC_TIME_KEY);
+    return data ? parseInt(data, 10) : 0;
+};
+
+export const setLastSyncTime = (time: number) => {
+    localStorage.setItem(LAST_SYNC_TIME_KEY, time.toString());
+};
+
 export const getTournamentState = (): TournamentState | null => {
     const saved = localStorage.getItem(TOURNAMENT_STATE_KEY);
     if (saved) {

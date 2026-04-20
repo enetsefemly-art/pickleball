@@ -4,7 +4,8 @@ import {
     getPlayers, getMatches, saveMatches, savePlayers, 
     calculatePlayerStats, getTournamentState, saveTournamentState,
     getDeletedMatchIds, addDeletedMatchId, removeDeletedMatchIds,
-    getDeletedPlayerIds, addDeletedPlayerId, removeDeletedPlayerIds
+    getDeletedPlayerIds, addDeletedPlayerId, removeDeletedPlayerIds,
+    getLastSyncTime, setLastSyncTime
 } from './services/storageService';
 import { syncToCloud, syncFromCloud } from './services/firebaseService';
 import { auth } from './firebase';
@@ -67,6 +68,9 @@ const App: React.FC = () => {
 
         await syncToCloud(currentPlayers, currentMatches, currentTournament);
         
+        // Record that cloud state matches our local state at this timestamp
+        setLastSyncTime(Date.now());
+        
         removeDeletedMatchIds(matchIdsToClear);
         removeDeletedPlayerIds(playerIdsToClear);
         setSyncStatus('success');
@@ -127,6 +131,7 @@ const App: React.FC = () => {
 
       setSyncStatus('syncing');
       try {
+        const syncStartTime = Date.now();
         const cloudData = await syncFromCloud();
         
         // Merge strategy: Cloud is source of truth, but if we have local matches that 
@@ -138,11 +143,21 @@ const App: React.FC = () => {
         const deletedPlayerIdsTracker = new Set(getDeletedPlayerIds());
         const cloudPlayersFiltered = cloudData.players.filter(p => !deletedPlayerIdsTracker.has(p.id));
 
+        const lastSyncTime = getLastSyncTime();
+        setLastSyncTime(syncStartTime);
+        
+        const extractTimestamp = (id: string): number => {
+            const match = id.match(/\d{13}/);
+            return match ? parseInt(match[0], 10) : 0;
+        };
+
         const cloudMatchIds = new Set(cloudMatchesFiltered.map(m => m.id));
-        const unsyncedLocalMatches = localMatches.filter(m => !cloudMatchIds.has(m.id));
+        // Only keep local matches that aren't on cloud IF they were created AFTER our last successful sync (offline creation)
+        const unsyncedLocalMatches = localMatches.filter(m => !cloudMatchIds.has(m.id) && extractTimestamp(m.id) > lastSyncTime);
         
         const cloudPlayerIds = new Set(cloudPlayersFiltered.map(p => p.id));
-        const unsyncedLocalPlayers = localPlayers.filter(p => !cloudPlayerIds.has(p.id));
+        // Only keep local players that aren't on cloud IF they were created AFTER our last successful sync
+        const unsyncedLocalPlayers = localPlayers.filter(p => !cloudPlayerIds.has(p.id) && extractTimestamp(p.id) > lastSyncTime);
 
         let finalMatches = cloudMatchesFiltered;
         let finalPlayers = cloudPlayersFiltered;
@@ -155,7 +170,7 @@ const App: React.FC = () => {
 
         // Merge matches
         if (unsyncedLocalMatches.length > 0) {
-            console.log(`Found ${unsyncedLocalMatches.length} unsynced local matches.`);
+            console.log(`Found ${unsyncedLocalMatches.length} offline-created local matches.`);
             finalMatches = [...cloudMatchesFiltered, ...unsyncedLocalMatches];
             finalMatches.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
             requiresUpSync = true;
@@ -163,7 +178,7 @@ const App: React.FC = () => {
 
         // Merge players
         if (unsyncedLocalPlayers.length > 0) {
-            console.log(`Found ${unsyncedLocalPlayers.length} unsynced local players.`);
+            console.log(`Found ${unsyncedLocalPlayers.length} offline-created local players.`);
             finalPlayers = [...cloudPlayersFiltered, ...unsyncedLocalPlayers];
             requiresUpSync = true;
         }
