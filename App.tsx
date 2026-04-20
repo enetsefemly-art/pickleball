@@ -3,8 +3,8 @@ import { Player, Match, TabView, TournamentState } from './types';
 import { 
     getPlayers, getMatches, saveMatches, savePlayers, 
     calculatePlayerStats, getTournamentState, saveTournamentState,
-    getDeletedMatchIds, addDeletedMatchId, clearDeletedMatchIds,
-    getDeletedPlayerIds, addDeletedPlayerId, clearDeletedPlayerIds
+    getDeletedMatchIds, addDeletedMatchId, removeDeletedMatchIds,
+    getDeletedPlayerIds, addDeletedPlayerId, removeDeletedPlayerIds
 } from './services/storageService';
 import { syncToCloud, syncFromCloud } from './services/firebaseService';
 import { auth } from './firebase';
@@ -61,9 +61,14 @@ const App: React.FC = () => {
     setSyncStatus('syncing');
 
     try {
+        // Capture exactly which IDs we are informing the cloud about
+        const matchIdsToClear = getDeletedMatchIds();
+        const playerIdsToClear = getDeletedPlayerIds();
+
         await syncToCloud(currentPlayers, currentMatches, currentTournament);
-        clearDeletedMatchIds();
-        clearDeletedPlayerIds();
+        
+        removeDeletedMatchIds(matchIdsToClear);
+        removeDeletedPlayerIds(playerIdsToClear);
         setSyncStatus('success');
         setTimeout(() => setSyncStatus(prev => prev === 'success' ? 'idle' : prev), 2000);
     } catch (e) {

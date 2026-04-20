@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Player, Match, TournamentState } from '../types';
 import { syncToCloud, syncFromCloud } from '../services/firebaseService';
 import { Cloud, Download, Upload, AlertCircle, Loader2, Terminal } from 'lucide-react';
-import { getTournamentState, clearDeletedMatchIds, clearDeletedPlayerIds } from '../services/storageService';
+import { getTournamentState, getDeletedMatchIds, getDeletedPlayerIds, removeDeletedMatchIds, removeDeletedPlayerIds } from '../services/storageService';
 
 interface CloudSyncProps {
   players: Player[];
@@ -44,9 +44,14 @@ export const CloudSync: React.FC<CloudSyncProps> = ({ players, matches, onDataLo
           addLog("Không có giải đấu nào đang diễn ra.");
       }
 
+      const matchIdsToClear = getDeletedMatchIds();
+      const playerIdsToClear = getDeletedPlayerIds();
+
       await syncToCloud(players, matches, currentTournament);
-      clearDeletedMatchIds();
-      clearDeletedPlayerIds();
+      
+      removeDeletedMatchIds(matchIdsToClear);
+      removeDeletedPlayerIds(playerIdsToClear);
+      
       addLog("✅ TẢI LÊN THÀNH CÔNG: Dữ liệu đã lưu trên Cloud.");
     } catch (e) {
       addLog("❌ LỖI: " + (e instanceof Error ? e.message : String(e)));
@@ -77,10 +82,13 @@ export const CloudSync: React.FC<CloudSyncProps> = ({ players, matches, onDataLo
     addLog("Đang kết nối máy chủ Google...");
 
     try {
+      const matchIdsToClear = getDeletedMatchIds();
+      const playerIdsToClear = getDeletedPlayerIds();
+
       const data = await syncFromCloud();
       addLog(`✅ Đã nhận: ${data.players.length} người chơi, ${data.matches.length} trận.`);
-      clearDeletedMatchIds();
-      clearDeletedPlayerIds();
+      removeDeletedMatchIds(matchIdsToClear);
+      removeDeletedPlayerIds(playerIdsToClear);
       
       if (data.tournament && data.tournament.isActive) {
           const matchCount = (data.tournament.schedule || []).length + (data.tournament.groupSchedule || []).length;

@@ -83,6 +83,16 @@ export const addDeletedMatchId = (id: string) => {
     localStorage.setItem(DELETED_MATCHES_KEY, JSON.stringify(Array.from(ids)));
 };
 
+export const removeDeletedMatchIds = (idsToRemove: string[]) => {
+    const list = new Set(getDeletedMatchIds());
+    idsToRemove.forEach(id => list.delete(id));
+    if (list.size === 0) {
+        localStorage.removeItem(DELETED_MATCHES_KEY);
+    } else {
+        localStorage.setItem(DELETED_MATCHES_KEY, JSON.stringify(Array.from(list)));
+    }
+};
+
 export const clearDeletedMatchIds = () => {
     localStorage.removeItem(DELETED_MATCHES_KEY);
 };
@@ -96,6 +106,16 @@ export const addDeletedPlayerId = (id: string) => {
     const ids = new Set(getDeletedPlayerIds());
     ids.add(id);
     localStorage.setItem(DELETED_PLAYERS_KEY, JSON.stringify(Array.from(ids)));
+};
+
+export const removeDeletedPlayerIds = (idsToRemove: string[]) => {
+    const list = new Set(getDeletedPlayerIds());
+    idsToRemove.forEach(id => list.delete(id));
+    if (list.size === 0) {
+        localStorage.removeItem(DELETED_PLAYERS_KEY);
+    } else {
+        localStorage.setItem(DELETED_PLAYERS_KEY, JSON.stringify(Array.from(list)));
+    }
 };
 
 export const clearDeletedPlayerIds = () => {
