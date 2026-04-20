@@ -168,6 +168,12 @@ const App: React.FC = () => {
         setMatches(finalMatches);
         setPlayers(cloudStats);
         
+        if (requiresUpSync || unsyncedLocalMatches.length > 0 || unsyncedLocalPlayers.length > 0) {
+            // Guarantee local storage is synced with the new merged array
+            saveMatches(finalMatches);
+            savePlayers(cloudStats);
+        }
+        
         // FIX: Only overwrite local tournament if cloud has data, or if local is empty.
         // This prevents wiping local active tournament if cloud backend doesn't support it yet.
         if (cloudData.tournament) {
@@ -279,11 +285,17 @@ const App: React.FC = () => {
   };
 
   // Called whenever tournament state changes (new schedule, score update, finished)
-  const handleUpdateTournamentState = (newState: TournamentState | null) => {
+  const handleUpdateTournamentState = async (newState: TournamentState | null) => {
       setTournamentState(newState);
       saveTournamentState(newState);
+      
+      // Ensure we pull the very latest from storage because handleTournamentSaveMatch 
+      // might have just run and React state (players, matches) could be stale in this closure.
+      const freshPlayers = getPlayers();
+      const freshMatches = getMatches();
+
       // Trigger cloud sync for everyone to see the schedule
-      performAutoSync(players, matches, newState);
+      await performAutoSync(freshPlayers, freshMatches, newState);
   };
 
   const handleDeleteMatch = async (id: string) => {

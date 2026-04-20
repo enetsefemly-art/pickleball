@@ -33,7 +33,9 @@ export const MatchRecorder: React.FC<MatchRecorderProps> = ({ players, onSave, o
 
   // Sort players alphabetically for dropdowns
   const sortedPlayers = useMemo(() => {
-    return [...players].sort((a, b) => a.name.localeCompare(b.name));
+    return [...players]
+      .filter(p => p.isActive !== false) // Filter out inactive players
+      .sort((a, b) => a.name.localeCompare(b.name));
   }, [players]);
 
   // Reset slots when mode changes
