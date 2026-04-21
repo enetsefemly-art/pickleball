@@ -1,8 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { Player, Match, TournamentState } from '../types';
-import { syncToCloud, syncFromCloud } from '../services/firebaseService';
-import { Cloud, Download, Upload, AlertCircle, Loader2, Terminal } from 'lucide-react';
-import { getTournamentState, getDeletedMatchIds, getDeletedPlayerIds, removeDeletedMatchIds, removeDeletedPlayerIds, setLastSyncTime } from '../services/storageService';
+import { Cloud, CheckCircle, Database } from 'lucide-react';
 
 interface CloudSyncProps {
   players: Player[];
@@ -11,202 +9,42 @@ interface CloudSyncProps {
   onClose: () => void;
 }
 
-export const CloudSync: React.FC<CloudSyncProps> = ({ players, matches, onDataLoaded, onClose }) => {
-  const [isLoading, setIsLoading] = useState(false);
-  const [loadingType, setLoadingType] = useState<'upload' | 'download' | null>(null);
-  
-  // Confirmation state for download
-  const [confirmDownload, setConfirmDownload] = useState(false);
-
-  // Status logs instead of just one message
-  const [logs, setLogs] = useState<string[]>([]);
-  const addLog = (msg: string) => setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ${msg}`]);
-
-  useEffect(() => {
-      addLog("Đã kết nối giao diện đồng bộ.");
-  }, []);
-
-  const handleUpload = async () => {
-    setIsLoading(true);
-    setLoadingType('upload');
-    setLogs([]); // Clear old logs
-    addLog("Bắt đầu tải lên dữ liệu...");
-    
-    try {
-      // Get current local tournament state to upload
-      const currentTournament = getTournamentState();
-      
-      addLog(`Gói tin: ${players.length} người, ${matches.length} trận.`);
-      if (currentTournament && currentTournament.isActive) {
-          const teamCount = (currentTournament.teams || []).length + (currentTournament.groups || []).length;
-          addLog(`Kèm theo: Giải đấu đang diễn ra (${teamCount} đội/nhóm).`);
-      } else {
-          addLog("Không có giải đấu nào đang diễn ra.");
-      }
-
-      const matchIdsToClear = getDeletedMatchIds();
-      const playerIdsToClear = getDeletedPlayerIds();
-
-      await syncToCloud(players, matches, currentTournament);
-      
-      setLastSyncTime(Date.now());
-      
-      removeDeletedMatchIds(matchIdsToClear);
-      removeDeletedPlayerIds(playerIdsToClear);
-      
-      addLog("✅ TẢI LÊN THÀNH CÔNG: Dữ liệu đã lưu trên Cloud.");
-    } catch (e) {
-      addLog("❌ LỖI: " + (e instanceof Error ? e.message : String(e)));
-    } finally {
-      setIsLoading(false);
-      setLoadingType(null);
-    }
-  };
-
-  const handleDownloadClick = async () => {
-    if (!confirmDownload) {
-        setConfirmDownload(true);
-        addLog("⚠️ CẢNH BÁO: Dữ liệu trên máy này sẽ bị thay thế bởi Cloud.");
-        addLog("👉 Nhấn nút Tải Về lần nữa để xác nhận.");
-        // Reset confirm state after 5 seconds if not clicked
-        setTimeout(() => {
-            setConfirmDownload(false);
-        }, 5000);
-        return;
-    }
-
-    // Reset confirm state
-    setConfirmDownload(false);
-    
-    setIsLoading(true);
-    setLoadingType('download');
-    setLogs([]); // Clear old logs
-    addLog("Đang kết nối máy chủ Google...");
-
-    try {
-      const syncStartTime = Date.now();
-      const matchIdsToClear = getDeletedMatchIds();
-      const playerIdsToClear = getDeletedPlayerIds();
-
-      const data = await syncFromCloud();
-      setLastSyncTime(syncStartTime);
-      addLog(`✅ Đã nhận: ${data.players.length} người chơi, ${data.matches.length} trận.`);
-      removeDeletedMatchIds(matchIdsToClear);
-      removeDeletedPlayerIds(playerIdsToClear);
-      
-      if (data.tournament && data.tournament.isActive) {
-          const matchCount = (data.tournament.schedule || []).length + (data.tournament.groupSchedule || []).length;
-          addLog(`🏆 Đã tải về: Giải đấu tháng ${data.tournament.tournamentDate.slice(5,7)} (${matchCount} trận).`);
-      } else {
-          addLog("ℹ️ Cloud không có giải đấu nào đang chạy.");
-      }
-      
-      onDataLoaded(data.players, data.matches, data.tournament);
-      addLog("✅ Đồng bộ hoàn tất!");
-    } catch (e) {
-      console.error("Download Error:", e);
-      addLog("❌ LỖI NGHIÊM TRỌNG: " + (e instanceof Error ? e.message : String(e)));
-      addLog("Vui lòng thử lại hoặc kiểm tra kết nối mạng.");
-    } finally {
-      setIsLoading(false);
-      setLoadingType(null);
-    }
-  };
-
+export const CloudSync: React.FC<CloudSyncProps> = ({ players, matches, onClose }) => {
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4 animate-fade-in">
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
-        {/* Header */}
-        <div className="bg-slate-900 text-white px-6 py-4 flex items-center justify-between shrink-0">
-            <h3 className="text-lg font-bold flex items-center gap-2">
-                <Cloud className="w-5 h-5 text-pickle-400" />
-                Đồng Bộ Google Sheet
+    <div className="bg-slate-800 rounded-xl max-w-sm w-[90vw] mx-auto overflow-hidden shadow-2xl border border-slate-700">
+        <div className="bg-slate-900 p-4 border-b border-slate-700 flex items-center justify-between">
+            <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                <Cloud className="w-5 h-5 text-green-400" />
+                Hệ Thống Đồng Bộ
             </h3>
-            <button onClick={onClose} className="text-slate-400 hover:text-white transition-colors p-1">
-                ✕
+            <button onClick={onClose} className="text-slate-400 hover:text-white p-1">✕</button>
+        </div>
+        <div className="p-5 text-sm text-slate-300">
+            <div className="flex items-start gap-4 mb-4">
+                <CheckCircle className="w-8 h-8 text-green-400 mt-0.5 shrink-0" />
+                <div>
+                    <strong className="text-white text-base mb-1 block">Tự động hoàn toàn!</strong>
+                    <p>Ứng dụng đã chuyển sang Firebase <strong>Realtime Sync</strong>. Mọi sự thay đổi (Thêm, Sửa, Xoá) của bạn sẽ được lưu trực tiếp và tất cả thiết bị khác sẽ được tự động đồng bộ theo thời gian thực.</p>
+                </div>
+            </div>
+            
+            <div className="grid grid-cols-2 gap-4 mb-6 mt-6">
+                <div className="bg-slate-900 rounded-lg p-4 flex flex-col items-center justify-center border border-slate-700">
+                    <Database className="w-6 h-6 text-blue-400 mb-2" />
+                    <div className="text-2xl font-bold text-white">{matches.length}</div>
+                    <div className="text-xs text-slate-400 font-medium tracking-wide uppercase mt-1">Trận Đấu</div>
+                </div>
+                <div className="bg-slate-900 rounded-lg p-4 flex flex-col items-center justify-center border border-slate-700">
+                    <Database className="w-6 h-6 text-purple-400 mb-2" />
+                    <div className="text-2xl font-bold text-white">{players.length}</div>
+                    <div className="text-xs text-slate-400 font-medium tracking-wide uppercase mt-1">Người Chơi</div>
+                </div>
+            </div>
+
+            <button onClick={onClose} className="w-full py-3 bg-slate-700 hover:bg-slate-600 font-bold rounded-xl text-white transition-colors">
+                Tuyệt Vời!
             </button>
         </div>
-
-        <div className="p-6 space-y-6 overflow-y-auto">
-            <div className="p-4 bg-blue-50 text-blue-800 rounded-lg text-sm border border-blue-100">
-                <p>Hệ thống kết nối trực tiếp với Google Sheet.</p>
-                <p className="mt-1 font-semibold text-xs text-blue-600 uppercase">Trạng thái: Sẵn sàng</p>
-            </div>
-
-            {/* Actions */}
-            <div className="grid grid-cols-2 gap-4">
-                <button
-                    onClick={handleDownloadClick}
-                    disabled={isLoading}
-                    className={`flex flex-col items-center justify-center gap-2 p-4 rounded-xl border-2 transition-all group disabled:opacity-50 disabled:cursor-not-allowed relative overflow-hidden ${
-                        confirmDownload 
-                        ? 'bg-red-50 border-red-500 animate-pulse' 
-                        : 'border-slate-100 hover:border-blue-500 hover:bg-blue-50'
-                    }`}
-                >
-                    {isLoading && loadingType === 'download' && (
-                        <div className="absolute inset-0 bg-white/80 flex items-center justify-center z-10">
-                             <Loader2 className="w-8 h-8 text-blue-500 animate-spin" />
-                        </div>
-                    )}
-                    <div className={`w-10 h-10 rounded-full flex items-center justify-center transition-transform ${confirmDownload ? 'bg-red-100 text-red-600 scale-110' : 'bg-blue-100 text-blue-600 group-hover:scale-110'}`}>
-                        {confirmDownload ? <AlertCircle className="w-6 h-6" /> : <Download className="w-5 h-5" />}
-                    </div>
-                    
-                    <span className={`font-bold text-center ${confirmDownload ? 'text-red-700' : 'text-slate-700 group-hover:text-blue-700'}`}>
-                        {confirmDownload ? "Bấm lần nữa để Xác Nhận" : "Tải Về App"}
-                    </span>
-                    
-                    {!confirmDownload && (
-                        <span className="text-xs text-slate-500 text-center">Lấy dữ liệu từ Sheet</span>
-                    )}
-                </button>
-
-                <button
-                    onClick={handleUpload}
-                    disabled={isLoading || confirmDownload} // Disable upload if verifying download
-                    className="flex flex-col items-center justify-center gap-2 p-4 rounded-xl border-2 border-slate-100 hover:border-pickle-500 hover:bg-pickle-50 transition-all group disabled:opacity-50 disabled:cursor-not-allowed relative overflow-hidden"
-                >
-                    {isLoading && loadingType === 'upload' && (
-                        <div className="absolute inset-0 bg-white/80 flex items-center justify-center z-10">
-                             <Loader2 className="w-8 h-8 text-pickle-500 animate-spin" />
-                        </div>
-                    )}
-                    <div className="w-10 h-10 rounded-full bg-pickle-100 text-pickle-600 flex items-center justify-center group-hover:scale-110 transition-transform">
-                        <Upload className="w-5 h-5" />
-                    </div>
-                    <span className="font-bold text-slate-700 group-hover:text-pickle-700">Lưu Lên Cloud</span>
-                    <span className="text-xs text-slate-500 text-center">Ghi đè dữ liệu lên Sheet</span>
-                </button>
-            </div>
-
-            {/* Visual Log Console */}
-            <div className="mt-4">
-                <div className="flex items-center gap-2 text-xs font-bold text-slate-500 mb-2 uppercase tracking-wider">
-                    <Terminal className="w-3 h-3" /> Nhật ký hệ thống
-                </div>
-                <div className="bg-slate-900 rounded-lg p-3 h-40 overflow-y-auto font-mono text-xs border border-slate-800 shadow-inner custom-scrollbar">
-                    {logs.length === 0 ? (
-                        <span className="text-slate-600 italic">Chờ thao tác...</span>
-                    ) : (
-                        logs.map((log, idx) => (
-                            <div key={idx} className={`mb-1 pb-1 border-b border-slate-800/50 last:border-0 ${
-                                log.includes("LỖI") ? 'text-red-400 font-bold' : 
-                                log.includes("THÀNH CÔNG") || log.includes("Đã tải về") ? 'text-green-400 font-bold' : 
-                                log.includes("Giải đấu") ? 'text-yellow-400' :
-                                'text-slate-300'
-                            }`}>
-                                {log}
-                            </div>
-                        ))
-                    )}
-                    {isLoading && (
-                        <div className="text-blue-400 animate-pulse">_ Đang xử lý...</div>
-                    )}
-                </div>
-            </div>
-        </div>
-      </div>
     </div>
   );
 };

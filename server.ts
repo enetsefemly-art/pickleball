@@ -88,7 +88,7 @@ async function startServer() {
   // Banner Routes
   const BANNER_FILE = '/tmp/app-config.json';
   
-  app.get("/api/app-config", (req, res) => {
+  app.get("/api/app-config", (_req, res) => {
     try {
       if (fs.existsSync(BANNER_FILE)) {
         const data = fs.readFileSync(BANNER_FILE, 'utf8');
@@ -124,7 +124,7 @@ async function startServer() {
   });
 
   // Global error handler for API routes
-  app.use('/api', (err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  app.use('/api', (err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
     console.error("API Error:", err);
     res.status(500).json({ status: "error", message: "Lỗi máy chủ nội bộ: " + err.message });
   });
@@ -141,7 +141,7 @@ async function startServer() {
     // Production: Serve static files from dist
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
-    app.get('*all', (req, res) => {
+    app.get('*all', (_req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }

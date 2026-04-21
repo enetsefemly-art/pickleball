@@ -1,13 +1,14 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Player, Match, TabView, TournamentState } from './types';
 import { 
     getPlayers, getMatches, saveMatches, savePlayers, 
-    calculatePlayerStats, getTournamentState, saveTournamentState,
-    getDeletedMatchIds, addDeletedMatchId, removeDeletedMatchIds,
-    getDeletedPlayerIds, addDeletedPlayerId, removeDeletedPlayerIds,
-    getLastSyncTime, setLastSyncTime
+    calculatePlayerStats, getTournamentState, saveTournamentState
 } from './services/storageService';
-import { syncToCloud, syncFromCloud } from './services/firebaseService';
+import { 
+    subscribeToMatches, subscribeToPlayers, subscribeToConfig,
+    deleteMatchFromCloud, saveBatchMatchesToCloud,
+    addPlayerToCloud, deletePlayerFromCloud, updateTournamentInCloud
+} from './services/firebaseService';
 import { auth } from './firebase';
 import { signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut, User } from 'firebase/auth';
 import { Leaderboard } from './components/Leaderboard';
@@ -20,10 +21,7 @@ import { Analysis } from './components/Analysis';
 import { AiMatchmaker } from './components/AiMatchmaker'; 
 import { CloudSync } from './components/CloudSync';
 import { Banner } from './components/Banner';
-import { LayoutDashboard, History, Trophy, PlusCircle, Zap, Cloud, Loader2, CheckCircle2, AlertCircle, CloudOff, Swords, Scale, Plus, BrainCircuit, Users, Bell, Image, LogOut, LogIn } from 'lucide-react';
-
-// Current App Version - Bump this to trigger red dot for users
-const APP_VERSION = '3.3.2'; // Bumped for Tournament Sync Fix
+import { LayoutDashboard, History, Trophy, PlusCircle, Swords, Zap, Cloud, Loader2, AlertCircle, Scale, Plus, BrainCircuit, Users, Image as ImageIcon, LogOut, LogIn } from 'lucide-react';
 
 const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
@@ -46,47 +44,6 @@ const App: React.FC = () => {
   // Banner State
   const [isEditingBanner, setIsEditingBanner] = useState(false);
   const [bannerUrl, setBannerUrl] = useState<string | null>(() => localStorage.getItem('picklepro_banner_url'));
-
-  // --- SYNC QUEUE REFS ---
-  const isSyncingRef = useRef(false);
-  const pendingSyncRef = useRef<{players: Player[], matches: Match[], tournament: TournamentState | null} | null>(null);
-
-  // --- AUTO SYNC LOGIC ---
-  const performAutoSync = async (currentPlayers: Player[], currentMatches: Match[], currentTournament: TournamentState | null) => {
-    if (isSyncingRef.current) {
-        pendingSyncRef.current = { players: currentPlayers, matches: currentMatches, tournament: currentTournament };
-        return;
-    }
-
-    isSyncingRef.current = true;
-    setSyncStatus('syncing');
-
-    try {
-        // Capture exactly which IDs we are informing the cloud about
-        const matchIdsToClear = getDeletedMatchIds();
-        const playerIdsToClear = getDeletedPlayerIds();
-
-        await syncToCloud(currentPlayers, currentMatches, currentTournament);
-        
-        // Record that cloud state matches our local state at this timestamp
-        setLastSyncTime(Date.now());
-        
-        removeDeletedMatchIds(matchIdsToClear);
-        removeDeletedPlayerIds(playerIdsToClear);
-        setSyncStatus('success');
-        setTimeout(() => setSyncStatus(prev => prev === 'success' ? 'idle' : prev), 2000);
-    } catch (e) {
-        console.error("Auto sync failed:", e);
-        setSyncStatus('error');
-    } finally {
-        isSyncingRef.current = false;
-        if (pendingSyncRef.current) {
-            const { players: nextPlayers, matches: nextMatches, tournament: nextTournament } = pendingSyncRef.current;
-            pendingSyncRef.current = null;
-            performAutoSync(nextPlayers, nextMatches, nextTournament);
-        }
-    }
-  };
 
   // --- AUTHENTICATION ---
   useEffect(() => {
@@ -115,124 +72,77 @@ const App: React.FC = () => {
     }
   };
 
-  // --- INITIALIZATION ---
+  // --- REALTIME INITIALIZATION ---
   useEffect(() => {
     if (!isAuthReady) return;
 
-    const initData = async () => {
-      const localMatches = getMatches();
-      const localPlayers = getPlayers();
-      const localTournament = getTournamentState();
-      const localStats = calculatePlayerStats(localPlayers, localMatches);
+    // Load instantly from cache
+    const localMatches = getMatches();
+    const localPlayers = getPlayers();
+    const localTournament = getTournamentState();
+    
+    setMatches(localMatches);
+    setPlayers(calculatePlayerStats(localPlayers, localMatches));
+    setTournamentState(localTournament);
+
+    setSyncStatus('syncing');
+
+    // Setup real-time listeners
+    const unsubMatches = subscribeToMatches((cloudMatches) => {
+      // Sort matches by date
+      cloudMatches.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
       
-      setMatches(localMatches);
-      setPlayers(localStats);
-      setTournamentState(localTournament);
+      setMatches(() => {
+        saveMatches(cloudMatches);
+        // Player stats must be recalculated whenever matches update
+        setPlayers(prevPlayers => {
+            const newStats = calculatePlayerStats(prevPlayers, cloudMatches);
+            savePlayers(newStats);
+            return newStats;
+        });
+        return cloudMatches;
+      });
+      setSyncStatus('success');
+      setTimeout(() => setSyncStatus('idle'), 2000);
+    });
 
-      setSyncStatus('syncing');
-      try {
-        const syncStartTime = Date.now();
-        const cloudData = await syncFromCloud();
-        
-        // Merge strategy: Cloud is source of truth, but if we have local matches that 
-        // aren't on Cloud (due to aborted syncs), we should PRESUMABLY push them up
-        // Filter out tracked deleted items from cloudData
-        const deletedMatchIdsTracker = new Set(getDeletedMatchIds());
-        const cloudMatchesFiltered = cloudData.matches.filter(m => !deletedMatchIdsTracker.has(m.id));
+    const unsubPlayers = subscribeToPlayers((cloudPlayers) => {
+      setPlayers(() => {
+          // Keep local stats logic flowing correctly simply using current matches memory
+          // Actually, calculatePlayerStats re-aggregates based on current matches.
+          // Since setMatches handles the heavy recalculation, here we just do a safe merge if needed, 
+          // but Firestore is source of truth.
+          const matchesInCache = getMatches(); 
+          const currentStats = calculatePlayerStats(cloudPlayers, matchesInCache);
+          savePlayers(currentStats);
+          return currentStats;
+      });
+    });
 
-        const deletedPlayerIdsTracker = new Set(getDeletedPlayerIds());
-        const cloudPlayersFiltered = cloudData.players.filter(p => !deletedPlayerIdsTracker.has(p.id));
-
-        const lastSyncTime = getLastSyncTime();
-        setLastSyncTime(syncStartTime);
-        
-        const extractTimestamp = (id: string): number => {
-            const match = id.match(/\d{13}/);
-            return match ? parseInt(match[0], 10) : 0;
-        };
-
-        const cloudMatchIds = new Set(cloudMatchesFiltered.map(m => m.id));
-        // Only keep local matches that aren't on cloud IF they were created AFTER our last successful sync (offline creation)
-        const unsyncedLocalMatches = localMatches.filter(m => !cloudMatchIds.has(m.id) && extractTimestamp(m.id) > lastSyncTime);
-        
-        const cloudPlayerIds = new Set(cloudPlayersFiltered.map(p => p.id));
-        // Only keep local players that aren't on cloud IF they were created AFTER our last successful sync
-        const unsyncedLocalPlayers = localPlayers.filter(p => !cloudPlayerIds.has(p.id) && extractTimestamp(p.id) > lastSyncTime);
-
-        let finalMatches = cloudMatchesFiltered;
-        let finalPlayers = cloudPlayersFiltered;
-        let requiresUpSync = false;
-        
-        // If we filtered out things from cloudData, we must push the deletion back up
-        if (cloudData.matches.length !== cloudMatchesFiltered.length || cloudData.players.length !== cloudPlayersFiltered.length) {
-            requiresUpSync = true;
-        }
-
-        // Merge matches
-        if (unsyncedLocalMatches.length > 0) {
-            console.log(`Found ${unsyncedLocalMatches.length} offline-created local matches.`);
-            finalMatches = [...cloudMatchesFiltered, ...unsyncedLocalMatches];
-            finalMatches.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-            requiresUpSync = true;
-        }
-
-        // Merge players
-        if (unsyncedLocalPlayers.length > 0) {
-            console.log(`Found ${unsyncedLocalPlayers.length} offline-created local players.`);
-            finalPlayers = [...cloudPlayersFiltered, ...unsyncedLocalPlayers];
-            requiresUpSync = true;
-        }
-
-        const cloudStats = calculatePlayerStats(finalPlayers, finalMatches);
-        
-        setMatches(finalMatches);
-        setPlayers(cloudStats);
-        
-        if (requiresUpSync || unsyncedLocalMatches.length > 0 || unsyncedLocalPlayers.length > 0) {
-            // Guarantee local storage is synced with the new merged array
-            saveMatches(finalMatches);
-            savePlayers(cloudStats);
-        }
-        
-        // FIX: Only overwrite local tournament if cloud has data, or if local is empty.
-        // This prevents wiping local active tournament if cloud backend doesn't support it yet.
-        if (cloudData.tournament) {
-            setTournamentState(cloudData.tournament);
-            saveTournamentState(cloudData.tournament);
-        } else if (localTournament && localTournament.isActive) {
-            console.log("Cloud sync: Preserving local active tournament (Cloud missing data)");
-            // Keep localTournament (already set above)
-        } else {
-            setTournamentState(null);
-            saveTournamentState(null);
-        }
-        
-        if (cloudData.bannerUrl !== undefined) {
-            setBannerUrl(cloudData.bannerUrl);
-            if (cloudData.bannerUrl) {
-                localStorage.setItem('picklepro_banner_url', cloudData.bannerUrl);
-            } else {
-                localStorage.removeItem('picklepro_banner_url');
-            }
-        }
-        
-        saveMatches(finalMatches);
-        savePlayers(cloudStats);
-
-        setSyncStatus('success');
-        setTimeout(() => setSyncStatus('idle'), 2000);
-        
-        if (requiresUpSync) {
-            // Push the merged state back to cloud
-            performAutoSync(cloudStats, finalMatches, getTournamentState());
-        }
-      } catch (e) {
-        console.error("Initial cloud fetch failed:", e);
-        setSyncStatus('error');
+    const unsubConfig = subscribeToConfig((cloudTournament, cloudBannerUrl) => {
+      if (cloudTournament) {
+        setTournamentState(cloudTournament);
+        saveTournamentState(cloudTournament);
+      } else {
+        setTournamentState(null);
+        saveTournamentState(null);
       }
+
+      if (cloudBannerUrl !== null) {
+        setBannerUrl(cloudBannerUrl);
+        localStorage.setItem('picklepro_banner_url', cloudBannerUrl);
+      } else {
+        setBannerUrl('');
+        localStorage.removeItem('picklepro_banner_url');
+      }
+    });
+
+    return () => {
+        unsubMatches();
+        unsubPlayers();
+        unsubConfig();
     };
 
-    initData();
   }, [user, isAuthReady]);
 
   // --- HANDLERS ---
@@ -270,9 +180,9 @@ const App: React.FC = () => {
         id: (Date.now() + index).toString()
     }));
 
+    // Optimistic UI
     const updatedMatches = [...matches, ...newMatches];
     const updatedPlayers = calculatePlayerStats(players, updatedMatches);
-
     setMatches(updatedMatches);
     setPlayers(updatedPlayers);
     saveMatches(updatedMatches);
@@ -281,7 +191,7 @@ const App: React.FC = () => {
     setRecordingMode('none');
     setActiveTab('matches');
 
-    await performAutoSync(updatedPlayers, updatedMatches, tournamentState);
+    await saveBatchMatchesToCloud(newMatches);
     alert("Đã đồng bộ kết quả lên Cloud!");
   };
 
@@ -292,45 +202,36 @@ const App: React.FC = () => {
           id: m.id || (Date.now() + index).toString()
       }));
 
+      // Optimistic upate
       const updatedMatches = [...matches, ...newMatches];
       const updatedPlayers = calculatePlayerStats(players, updatedMatches);
-
       setMatches(updatedMatches);
       setPlayers(updatedPlayers);
       saveMatches(updatedMatches);
       savePlayers(updatedPlayers);
 
-      // We don't trigger sync here explicitly because updateTournamentState will likely be called immediately after
-      // by the TournamentManager to update the schedule status.
+      await saveBatchMatchesToCloud(newMatches);
   };
 
   // Called whenever tournament state changes (new schedule, score update, finished)
   const handleUpdateTournamentState = async (newState: TournamentState | null) => {
       setTournamentState(newState);
       saveTournamentState(newState);
-      
-      // Ensure we pull the very latest from storage because handleTournamentSaveMatch 
-      // might have just run and React state (players, matches) could be stale in this closure.
-      const freshPlayers = getPlayers();
-      const freshMatches = getMatches();
-
-      // Trigger cloud sync for everyone to see the schedule
-      await performAutoSync(freshPlayers, freshMatches, newState);
+      await updateTournamentInCloud(newState);
   };
 
   const handleDeleteMatch = async (id: string) => {
      const updatedMatches = matches.filter(m => m.id !== id);
      if (matches.length === updatedMatches.length) return;
 
-     addDeletedMatchId(id); // Traack deletion
+     // Optimistic update
      const updatedPlayers = calculatePlayerStats(players, updatedMatches);
-
      setMatches(updatedMatches);
      setPlayers(updatedPlayers);
      saveMatches(updatedMatches);
      savePlayers(updatedPlayers);
 
-     await performAutoSync(updatedPlayers, updatedMatches, tournamentState);
+     await deleteMatchFromCloud(id);
   };
 
   const handleAddPlayer = async (name: string, initialPoints: number) => {
@@ -348,29 +249,38 @@ const App: React.FC = () => {
       isActive: true
     };
     
+    // Optimistic
     const updatedPlayers = [...players, newPlayer];
     setPlayers(updatedPlayers);
     savePlayers(updatedPlayers);
-    await performAutoSync(updatedPlayers, matches, tournamentState);
+    
+    await addPlayerToCloud(newPlayer);
   };
 
   const handleDeletePlayer = async (id: string) => {
     const updatedPlayers = players.filter(p => p.id !== id);
     if(updatedPlayers.length === players.length) return;
 
-    addDeletedPlayerId(id); // Track deletion
+    // Optimistic
     setPlayers(updatedPlayers);
     savePlayers(updatedPlayers);
-    await performAutoSync(updatedPlayers, matches, tournamentState);
+    
+    await deletePlayerFromCloud(id);
   };
 
   const handleTogglePlayerStatus = async (id: string) => {
+      const playerToToggle = players.find(p => p.id === id);
+      if (!playerToToggle) return;
+      
+      const newPlayer = { ...playerToToggle, isActive: !playerToToggle.isActive };
+      
       const updatedPlayers = players.map(p => 
-          p.id === id ? { ...p, isActive: !p.isActive } : p
+          p.id === id ? newPlayer : p
       );
       setPlayers(updatedPlayers);
       savePlayers(updatedPlayers);
-      await performAutoSync(updatedPlayers, matches, tournamentState);
+      
+      await addPlayerToCloud(newPlayer);
   };
 
   // --- COMPONENTS ---
@@ -388,14 +298,21 @@ const App: React.FC = () => {
       </button>
   );
 
-  const SyncStatusIcon = () => {
-      if (!user) return <CloudOff className="w-5 h-5 text-slate-500" />;
-      switch (syncStatus) {
-          case 'syncing': return <Loader2 className="w-5 h-5 text-blue-400 animate-spin" />;
-          case 'success': return <CheckCircle2 className="w-5 h-5 text-green-400" />;
-          case 'error': return <AlertCircle className="w-5 h-5 text-red-500" />;
-          default: return <Cloud className="w-5 h-5 text-slate-400" />;
-      }
+  const SyncStatusIndicator = () => {
+    return (
+        <button 
+           onClick={() => setIsSyncOpen(true)}
+           className="hidden sm:flex items-center gap-1.5 px-2 py-1 rounded-md hover:bg-slate-800 transition-colors"
+           title="Trạng thái đồng bộ"
+        >
+            {syncStatus === 'syncing' ? <Loader2 className="w-4 h-4 text-blue-400 animate-spin" /> :
+             syncStatus === 'error' ? <AlertCircle className="w-4 h-4 text-red-400" /> :
+             <Cloud className="w-4 h-4 text-green-400" />}
+            <span className="text-[10px] uppercase font-bold text-slate-400">
+                {syncStatus === 'syncing' ? 'Đang tải' : syncStatus === 'error' ? 'Mất MX' : 'Online'}
+            </span>
+        </button>
+    );
   };
 
   return (
@@ -432,6 +349,7 @@ const App: React.FC = () => {
           
           {/* Right Actions */}
           <div className="flex items-center gap-1.5 flex-shrink-0">
+             <SyncStatusIndicator />
              {/* Desktop: Batch Record Button */}
              <button 
                 onClick={() => setRecordingMode('batch')}
@@ -479,7 +397,7 @@ const App: React.FC = () => {
                 className={`p-2 rounded-full transition-colors ${isEditingBanner ? 'bg-pickle-500 text-white' : 'hover:bg-slate-800 text-slate-400 hover:text-white'}`}
                 title="Cập nhật Banner"
              >
-                <Image size={20} />
+                <ImageIcon size={20} />
              </button>
 
              <div className="w-px h-6 bg-slate-700 mx-1"></div>

@@ -132,15 +132,17 @@ service cloud.firestore {
       allow delete: if true;
     }
 
-    match /config/tournament {
+    match /config/{document} {
       allow read: if true;
+    }
+
+    match /config/tournament {
       allow create: if isValidTournament(request.resource.data);
       allow update: if isValidTournament(request.resource.data);
       allow delete: if true;
     }
 
     match /config/app {
-      allow read: if true;
       allow create: if isValidAppConfig(request.resource.data);
       allow update: if isValidAppConfig(request.resource.data);
       allow delete: if true;
