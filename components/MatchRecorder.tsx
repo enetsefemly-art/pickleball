@@ -260,21 +260,37 @@ export const MatchRecorder: React.FC<MatchRecorderProps> = ({ players, onSave, o
             <div className="absolute left-1/2 top-[40%] -translate-x-1/2 -translate-y-1/2 z-10 flex flex-col items-center gap-1 bg-white p-2 rounded-2xl shadow-xl border-2 border-slate-200">
                 <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Tỉ Số</div>
                 <div className="flex items-center gap-2">
-                    <input 
-                        type="number" 
-                        value={score1}
-                        onChange={(e) => setScore1(e.target.value)}
-                        placeholder="0"
-                        className="w-14 h-14 text-center text-3xl font-black text-green-700 bg-green-50 rounded-xl border-2 border-green-200 focus:outline-none focus:ring-4 focus:ring-green-100 focus:border-green-500 transition-all"
-                    />
-                    <span className="text-slate-300 font-black text-xl">:</span>
-                    <input 
-                        type="number" 
-                        value={score2}
-                        onChange={(e) => setScore2(e.target.value)}
-                        placeholder="0"
-                        className="w-14 h-14 text-center text-3xl font-black text-blue-700 bg-blue-50 rounded-xl border-2 border-blue-200 focus:outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition-all"
-                    />
+                    <div className="flex flex-col gap-1 items-center">
+                        <input 
+                            type="number" 
+                            inputMode="numeric"
+                            pattern="[0-9]*"
+                            value={score1}
+                            onChange={(e) => setScore1(e.target.value)}
+                            placeholder="0"
+                            className="w-14 h-14 text-center text-3xl font-black text-green-700 bg-green-50 rounded-xl border-2 border-green-200 focus:outline-none focus:ring-4 focus:ring-green-100 focus:border-green-500 transition-all"
+                        />
+                        <div className="flex gap-1">
+                            <button type="button" onClick={() => setScore1('11')} className="w-[26px] h-6 text-[11px] font-black bg-slate-50 hover:bg-green-100 hover:text-green-700 text-slate-500 border border-slate-200 rounded shadow-sm">11</button>
+                            <button type="button" onClick={() => setScore1('12')} className="w-[26px] h-6 text-[11px] font-black bg-slate-50 hover:bg-green-100 hover:text-green-700 text-slate-500 border border-slate-200 rounded shadow-sm">12</button>
+                        </div>
+                    </div>
+                    <span className="text-slate-300 font-black text-xl mb-7">:</span>
+                    <div className="flex flex-col gap-1 items-center">
+                        <input 
+                            type="number" 
+                            inputMode="numeric"
+                            pattern="[0-9]*"
+                            value={score2}
+                            onChange={(e) => setScore2(e.target.value)}
+                            placeholder="0"
+                            className="w-14 h-14 text-center text-3xl font-black text-blue-700 bg-blue-50 rounded-xl border-2 border-blue-200 focus:outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition-all"
+                        />
+                        <div className="flex gap-1">
+                            <button type="button" onClick={() => setScore2('11')} className="w-[26px] h-6 text-[11px] font-black bg-slate-50 hover:bg-blue-100 hover:text-blue-700 text-slate-500 border border-slate-200 rounded shadow-sm">11</button>
+                            <button type="button" onClick={() => setScore2('12')} className="w-[26px] h-6 text-[11px] font-black bg-slate-50 hover:bg-blue-100 hover:text-blue-700 text-slate-500 border border-slate-200 rounded shadow-sm">12</button>
+                        </div>
+                    </div>
                 </div>
             </div>
 

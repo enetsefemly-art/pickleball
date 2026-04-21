@@ -280,21 +280,37 @@ export const BatchMatchRecorder: React.FC<BatchMatchRecorderProps> = ({ players,
                             {/* Score Inputs */}
                             <td className="py-3 px-2 border-l border-slate-200">
                                 <div className="flex gap-1 justify-center items-center">
-                                    <input 
-                                        type="number"
-                                        value={row.score1}
-                                        onChange={(e) => updateRow(row.id, 'score1', e.target.value)}
-                                        className="w-10 h-10 text-center font-bold text-green-700 bg-green-50 border border-green-200 rounded focus:outline-none focus:ring-1 focus:ring-green-500"
-                                        placeholder="-"
-                                    />
-                                    <span className="text-slate-300 font-bold">:</span>
-                                    <input 
-                                        type="number"
-                                        value={row.score2}
-                                        onChange={(e) => updateRow(row.id, 'score2', e.target.value)}
-                                        className="w-10 h-10 text-center font-bold text-blue-700 bg-blue-50 border border-blue-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
-                                        placeholder="-"
-                                    />
+                                    <div className="flex flex-col gap-1 items-center">
+                                        <input 
+                                            type="number"
+                                            inputMode="numeric"
+                                            pattern="[0-9]*"
+                                            value={row.score1}
+                                            onChange={(e) => updateRow(row.id, 'score1', e.target.value)}
+                                            className="w-10 h-10 text-center font-bold text-green-700 bg-green-50 border border-green-200 rounded focus:outline-none focus:ring-1 focus:ring-green-500"
+                                            placeholder="-"
+                                        />
+                                        <div className="flex gap-1">
+                                            <button type="button" onClick={() => updateRow(row.id, 'score1', 11)} className="w-[18px] h-4 text-[9px] font-bold bg-slate-50 hover:bg-green-100 hover:text-green-700 text-slate-500 border border-slate-200 rounded">11</button>
+                                            <button type="button" onClick={() => updateRow(row.id, 'score1', 12)} className="w-[18px] h-4 text-[9px] font-bold bg-slate-50 hover:bg-green-100 hover:text-green-700 text-slate-500 border border-slate-200 rounded">12</button>
+                                        </div>
+                                    </div>
+                                    <span className="text-slate-300 font-bold mb-5">:</span>
+                                    <div className="flex flex-col gap-1 items-center">
+                                        <input 
+                                            type="number"
+                                            inputMode="numeric"
+                                            pattern="[0-9]*"
+                                            value={row.score2}
+                                            onChange={(e) => updateRow(row.id, 'score2', e.target.value)}
+                                            className="w-10 h-10 text-center font-bold text-blue-700 bg-blue-50 border border-blue-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                            placeholder="-"
+                                        />
+                                        <div className="flex gap-1">
+                                            <button type="button" onClick={() => updateRow(row.id, 'score2', 11)} className="w-[18px] h-4 text-[9px] font-bold bg-slate-50 hover:bg-blue-100 hover:text-blue-700 text-slate-500 border border-slate-200 rounded">11</button>
+                                            <button type="button" onClick={() => updateRow(row.id, 'score2', 12)} className="w-[18px] h-4 text-[9px] font-bold bg-slate-50 hover:bg-blue-100 hover:text-blue-700 text-slate-500 border border-slate-200 rounded">12</button>
+                                        </div>
+                                    </div>
                                 </div>
                             </td>
 
@@ -485,21 +501,37 @@ export const BatchMatchRecorder: React.FC<BatchMatchRecorderProps> = ({ players,
                          {/* Scores & Points */}
                         <div className="grid grid-cols-5 gap-2 items-center">
                             <div className="col-span-5 flex justify-center gap-2 bg-slate-50 p-3 rounded-lg border border-slate-200">
-                                <input 
-                                    type="number"
-                                    value={row.score1}
-                                    onChange={(e) => updateRow(row.id, 'score1', e.target.value)}
-                                    className="w-14 h-12 text-center font-black text-2xl text-green-700 bg-white border-2 border-green-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 shadow-sm"
-                                    placeholder="0"
-                                />
-                                <span className="text-slate-300 font-bold self-center text-xl">:</span>
-                                <input 
-                                    type="number"
-                                    value={row.score2}
-                                    onChange={(e) => updateRow(row.id, 'score2', e.target.value)}
-                                    className="w-14 h-12 text-center font-black text-2xl text-blue-700 bg-white border-2 border-blue-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-sm"
-                                    placeholder="0"
-                                />
+                                <div className="flex flex-col gap-1 items-center">
+                                    <input 
+                                        type="number"
+                                        inputMode="numeric"
+                                        pattern="[0-9]*"
+                                        value={row.score1}
+                                        onChange={(e) => updateRow(row.id, 'score1', e.target.value)}
+                                        className="w-14 h-12 text-center font-black text-2xl text-green-700 bg-white border-2 border-green-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 shadow-sm"
+                                        placeholder="0"
+                                    />
+                                    <div className="flex gap-1">
+                                        <button type="button" onClick={() => updateRow(row.id, 'score1', 11)} className="w-[26px] h-6 text-[11px] font-black bg-white hover:bg-green-100 hover:text-green-700 text-slate-500 border border-slate-200 rounded shadow-sm">11</button>
+                                        <button type="button" onClick={() => updateRow(row.id, 'score1', 12)} className="w-[26px] h-6 text-[11px] font-black bg-white hover:bg-green-100 hover:text-green-700 text-slate-500 border border-slate-200 rounded shadow-sm">12</button>
+                                    </div>
+                                </div>
+                                <span className="text-slate-300 font-bold self-center text-xl mb-7">:</span>
+                                <div className="flex flex-col gap-1 items-center">
+                                    <input 
+                                        type="number"
+                                        inputMode="numeric"
+                                        pattern="[0-9]*"
+                                        value={row.score2}
+                                        onChange={(e) => updateRow(row.id, 'score2', e.target.value)}
+                                        className="w-14 h-12 text-center font-black text-2xl text-blue-700 bg-white border-2 border-blue-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-sm"
+                                        placeholder="0"
+                                    />
+                                    <div className="flex gap-1">
+                                        <button type="button" onClick={() => updateRow(row.id, 'score2', 11)} className="w-[26px] h-6 text-[11px] font-black bg-white hover:bg-blue-100 hover:text-blue-700 text-slate-500 border border-slate-200 rounded shadow-sm">11</button>
+                                        <button type="button" onClick={() => updateRow(row.id, 'score2', 12)} className="w-[26px] h-6 text-[11px] font-black bg-white hover:bg-blue-100 hover:text-blue-700 text-slate-500 border border-slate-200 rounded shadow-sm">12</button>
+                                    </div>
+                                </div>
                             </div>
                         </div>
 
