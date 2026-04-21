@@ -6,10 +6,10 @@ import {
 } from './services/storageService';
 import { 
     subscribeToMatches, subscribeToPlayers, subscribeToConfig,
-    deleteMatchFromCloud, saveBatchMatchesToCloud,
-    addPlayerToCloud, deletePlayerFromCloud, updateTournamentInCloud
+    deleteMatchFromCloud, saveBatchMatchesToCloud, saveBatchPlayersToCloud,
+    addPlayerToCloud, deletePlayerFromCloud, updateTournamentInCloud, activeListeners
 } from './services/firebaseService';
-import { auth } from './firebase';
+import { auth, db } from './firebase';
 import { signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut, User } from 'firebase/auth';
 import { Leaderboard } from './components/Leaderboard';
 import { BatchMatchRecorder } from './components/BatchMatchRecorder';
@@ -21,7 +21,7 @@ import { Analysis } from './components/Analysis';
 import { AiMatchmaker } from './components/AiMatchmaker'; 
 import { CloudSync } from './components/CloudSync';
 import { Banner } from './components/Banner';
-import { LayoutDashboard, History, Trophy, PlusCircle, Swords, Zap, Cloud, Loader2, AlertCircle, Scale, Plus, BrainCircuit, Users, Image as ImageIcon, LogOut, LogIn } from 'lucide-react';
+import { LayoutDashboard, History, Trophy, PlusCircle, Swords, Zap, Cloud, Loader2, AlertCircle, Scale, Plus, BrainCircuit, Users, Image as ImageIcon, LogOut, LogIn, Bug } from 'lucide-react';
 
 const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
@@ -40,6 +40,10 @@ const App: React.FC = () => {
   // Cloud Sync State
   const [isSyncOpen, setIsSyncOpen] = useState(false);
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'success' | 'error'>('idle');
+
+  // Debug Panel Enablement
+  const [showDebug, setShowDebug] = useState(false);
+  const [debugInfo, setDebugInfo] = useState({ snapshotTime: '', error: '' });
 
   // Banner State
   const [isEditingBanner, setIsEditingBanner] = useState(false);
@@ -180,6 +184,10 @@ const App: React.FC = () => {
         id: (Date.now() + index).toString()
     }));
 
+    // Cache previous state
+    const previousMatches = [...matches];
+    const previousPlayers = [...players];
+
     // Optimistic UI
     const updatedMatches = [...matches, ...newMatches];
     const updatedPlayers = calculatePlayerStats(players, updatedMatches);
@@ -191,8 +199,26 @@ const App: React.FC = () => {
     setRecordingMode('none');
     setActiveTab('matches');
 
-    await saveBatchMatchesToCloud(newMatches);
-    alert("Đã đồng bộ kết quả lên Cloud!");
+    try {
+        await saveBatchMatchesToCloud(newMatches);
+        
+        try {
+            await saveBatchPlayersToCloud(updatedPlayers);
+            alert("Đã đồng bộ kết quả lên Cloud!");
+        } catch (playerError: any) {
+             console.error("Match saved but player stats sync failed", playerError);
+             setDebugInfo(prev => ({ ...prev, error: `Stat Sync Delayed: ${playerError.message}` }));
+             alert("Trận đấu đã được lưu, nhưng hệ thống đang đồng bộ lại chỉ số người chơi. (Chỉ số sẽ tự cập nhật khi có mạng)");
+        }
+    } catch (e: any) {
+        console.error("Save match batch failed completely, rolling back UI", e);
+        setDebugInfo(prev => ({ ...prev, error: `Save match failed: ${e.message}` }));
+        setMatches(previousMatches);
+        setPlayers(previousPlayers);
+        saveMatches(previousMatches);
+        savePlayers(previousPlayers);
+        alert("Gặp lỗi đường truyền khi cập nhật! Đã tự động khôi phục lại dữ liệu cục bộ. Hãy thử lại.");
+    }
   };
 
   // Called when a match is finished in tournament
@@ -202,7 +228,11 @@ const App: React.FC = () => {
           id: m.id || (Date.now() + index).toString()
       }));
 
-      // Optimistic upate
+      // Cache previous state
+      const previousMatches = [...matches];
+      const previousPlayers = [...players];
+
+      // Optimistic update
       const updatedMatches = [...matches, ...newMatches];
       const updatedPlayers = calculatePlayerStats(players, updatedMatches);
       setMatches(updatedMatches);
@@ -210,7 +240,25 @@ const App: React.FC = () => {
       saveMatches(updatedMatches);
       savePlayers(updatedPlayers);
 
-      await saveBatchMatchesToCloud(newMatches);
+      try {
+          await saveBatchMatchesToCloud(newMatches);
+          
+          try {
+              await saveBatchPlayersToCloud(updatedPlayers);
+          } catch(playerError: any) {
+              console.error("Tournament match saved but player stats sync failed", playerError);
+              setDebugInfo(prev => ({ ...prev, error: `Stat Sync Delayed: ${playerError.message}` }));
+              // Do not alert aggressively in tournament flow to let UX flow, eventual consistency will heal this
+          }
+      } catch (e: any) {
+          console.error("Tournament save match failed completely, rolling back UI", e);
+          setDebugInfo(prev => ({ ...prev, error: `Save failed: ${e.message}` }));
+          setMatches(previousMatches);
+          setPlayers(previousPlayers);
+          saveMatches(previousMatches);
+          savePlayers(previousPlayers);
+          alert("Gặp lỗi đường truyền khi cập nhật trận đấu giải!");
+      }
   };
 
   // Called whenever tournament state changes (new schedule, score update, finished)
@@ -224,6 +272,10 @@ const App: React.FC = () => {
      const updatedMatches = matches.filter(m => m.id !== id);
      if (matches.length === updatedMatches.length) return;
 
+     // Cache previous state for rollback
+     const previousMatches = [...matches];
+     const previousPlayers = [...players];
+
      // Optimistic update
      const updatedPlayers = calculatePlayerStats(players, updatedMatches);
      setMatches(updatedMatches);
@@ -231,7 +283,26 @@ const App: React.FC = () => {
      saveMatches(updatedMatches);
      savePlayers(updatedPlayers);
 
-     await deleteMatchFromCloud(id);
+     try {
+       await deleteMatchFromCloud(id);
+       
+       try {
+           await saveBatchPlayersToCloud(updatedPlayers);
+       } catch (playerError: any) {
+           console.error("Match deleted but player stats sync failed", playerError);
+           setDebugInfo(prev => ({ ...prev, error: `Stat Sync Delayed: ${playerError.message}` }));
+           alert("Trận đấu đã được xoá, nhưng hệ thống đang chờ đồng bộ lại chỉ số người chơi. (Sẽ tự cập nhật)");
+       }
+     } catch (e: any) {
+       // Rollback only if the MATCH deletion failed
+       console.error("Delete match failed, rolling back UI", e);
+       setDebugInfo(prev => ({ ...prev, error: `Delete failed: ${e.message}` }));
+       setMatches(previousMatches);
+       setPlayers(previousPlayers);
+       saveMatches(previousMatches);
+       savePlayers(previousPlayers);
+       alert("Lỗi khi xóa trận đấu. Có thể do mạng yếu hoặc thiếu quyền truy cập.");
+     }
   };
 
   const handleAddPlayer = async (name: string, initialPoints: number) => {
@@ -550,6 +621,39 @@ const App: React.FC = () => {
             onDataLoaded={handleCloudDataLoaded}
             onClose={() => setIsSyncOpen(false)}
         />
+      )}
+
+      {/* Extreme Debug UI (Toggle by pressing Ctrl+Shift+D or equivalent, implemented below) */}
+      <button 
+         className="fixed bottom-4 right-4 bg-slate-900 border border-slate-700 text-slate-500 hover:text-white p-2 rounded-full shadow-lg z-50 transition-colors"
+         onClick={() => setShowDebug(!showDebug)}
+         title="Toggle Debug Panel"
+      >
+         <Bug size={16} />
+      </button>
+
+      {showDebug && (
+         <div className="fixed bottom-16 right-4 w-80 bg-slate-900 border border-red-500 rounded-lg p-4 font-mono text-[10px] text-green-400 shadow-2xl z-50 overflow-auto max-h-96 opacity-95">
+             <h3 className="font-bold text-red-500 mb-2 uppercase border-b border-slate-700 pb-1 flex justify-between">
+                 [DEV] Instrumentation 
+                 <button onClick={() => setShowDebug(false)} className="text-white hover:text-red-400">✕</button>
+             </h3>
+             <ul className="space-y-1">
+                 <li><strong>Auth:</strong> {isAuthReady ? (user ? `OK (${user.uid.slice(0,5)}...)` : 'No User') : 'Wait...'}</li>
+                 <li><strong>Firebase Proj:</strong> {db?.app?.options?.projectId || 'Unknown'}</li>
+                 <li><strong>Listeners Active:</strong> Matches: {activeListeners.matches}, Players: {activeListeners.players}, Config: {activeListeners.config}</li>
+                 <li><strong>Local Cache Matches:</strong> {getMatches().length} docs</li>
+                 <li><strong>Local Cache Players:</strong> {getPlayers().length} docs</li>
+                 <li><strong>Mem Matches:</strong> {matches.length} docs</li>
+                 <li><strong>Mem Players:</strong> {players.length} docs</li>
+                 <li><strong>Last Snapshot:</strong> {debugInfo.snapshotTime || 'N/A'}</li>
+                 <li><strong>Last Error:</strong> <span className="text-red-400">{debugInfo.error || 'None'}</span></li>
+                 <li className="pt-2 border-t border-slate-700 mt-2 text-yellow-500"><strong>Doc IDs in Memory (Top 5):</strong></li>
+                 {matches.slice(0, 5).map(m => (
+                     <li key={m.id}>- {m.id}</li>
+                 ))}
+             </ul>
+         </div>
       )}
 
     </div>

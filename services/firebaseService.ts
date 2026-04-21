@@ -49,17 +49,30 @@ const cleanData = (obj: any) => {
 
 // --- REALTIME LISTENERS ---
 
+export const activeListeners = {
+    matches: 0,
+    players: 0,
+    config: 0
+};
+
 export const subscribeToPlayers = (callback: (players: Player[]) => void) => {
-    return onSnapshot(collection(db, 'players'), (snapshot) => {
+    activeListeners.players++;
+    const unsubscribe = onSnapshot(collection(db, 'players'), (snapshot) => {
         const players = snapshot.docs.map(doc => doc.data() as Player);
         callback(players);
     }, (error) => {
         handleFirestoreError(error, OperationType.LIST, 'players');
     });
+    
+    return () => {
+        activeListeners.players--;
+        unsubscribe();
+    };
 };
 
 export const subscribeToMatches = (callback: (matches: Match[]) => void) => {
-    return onSnapshot(collection(db, 'matches'), (snapshot) => {
+    activeListeners.matches++;
+    const unsubscribe = onSnapshot(collection(db, 'matches'), (snapshot) => {
         const matches = snapshot.docs.map(doc => {
             const data = doc.data();
             // Ensure ID is set on read as backward compatibility for older match records
@@ -69,10 +82,16 @@ export const subscribeToMatches = (callback: (matches: Match[]) => void) => {
     }, (error) => {
         handleFirestoreError(error, OperationType.LIST, 'matches');
     });
+
+    return () => {
+        activeListeners.matches--;
+        unsubscribe();
+    };
 };
 
 export const subscribeToConfig = (callback: (tournament: TournamentState | null, bannerUrl: string | null) => void) => {
-    return onSnapshot(collection(db, 'config'), (snapshot) => {
+    activeListeners.config++;
+    const unsubscribe = onSnapshot(collection(db, 'config'), (snapshot) => {
         let tournament: TournamentState | null = null;
         let bannerUrl: string | null = null;
         
@@ -98,6 +117,11 @@ export const subscribeToConfig = (callback: (tournament: TournamentState | null,
     }, (error) => {
         handleFirestoreError(error, OperationType.LIST, 'config');
     });
+
+    return () => {
+        activeListeners.config--;
+        unsubscribe();
+    };
 };
 
 // --- GRANULAR WRITE OPERATIONS ---
@@ -128,6 +152,32 @@ export const saveBatchMatchesToCloud = async (matches: Match[]): Promise<void> =
         await batch.commit();
     } catch (e) {
         handleFirestoreError(e, OperationType.WRITE, 'matches');
+    }
+}
+
+export const saveBatchPlayersToCloud = async (players: Player[]): Promise<void> => {
+    try {
+        // Group players into chunks of 400 to respect Firestore batch limit (500)
+        let batch = writeBatch(db);
+        let count = 0;
+
+        for (const player of players) {
+            const ref = doc(db, 'players', player.id);
+            batch.set(ref, cleanData(player), { merge: true });
+            count++;
+
+            if (count === 400) {
+                await batch.commit();
+                batch = writeBatch(db);
+                count = 0;
+            }
+        }
+        
+        if (count > 0) {
+            await batch.commit();
+        }
+    } catch (e) {
+        handleFirestoreError(e, OperationType.WRITE, 'players');
     }
 }
 
