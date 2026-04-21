@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Player, Match } from '../types';
 import { Card } from './Card';
-import { UserPlus, Users, Calendar, Award, Trophy, Banknote, Check } from 'lucide-react';
+import { UserPlus, Users, Calendar, Award, Trophy, Banknote, Check, ArrowRightLeft, Edit2 } from 'lucide-react';
 
 interface MatchRecorderProps {
   players: Player[];
@@ -163,26 +163,28 @@ export const MatchRecorder: React.FC<MatchRecorderProps> = ({ players, onSave, o
         </div>
 
         {/* Mode Selector */}
-        <div className="flex justify-center space-x-4">
+        <div className="bg-slate-100 p-1.5 rounded-xl flex items-center relative shadow-inner">
+            <div className={`absolute top-1.5 bottom-1.5 w-[calc(50%-22px)] bg-white rounded-lg shadow-sm border border-slate-200 transition-all duration-300 ${mode === 'singles' ? 'left-1.5' : 'left-[calc(50%+16px)]'}`}></div>
             <button 
+            type="button"
             onClick={() => setMode('singles')}
-            className={`flex-1 flex items-center justify-center px-4 py-3 rounded-lg border-2 font-bold transition-all shadow-sm ${
-                mode === 'singles' 
-                ? 'bg-pickle-600 border-pickle-600 text-white shadow-md' 
-                : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50 hover:border-slate-300'
+            className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-lg font-bold text-sm transition-all z-10 ${
+                mode === 'singles' ? 'text-pickle-700' : 'text-slate-500 hover:text-slate-700'
             }`}
             >
-            <UserPlus className="w-5 h-5 mr-2" /> Đánh Đơn
+            <UserPlus className={`w-5 h-5 ${mode === 'singles' ? 'text-pickle-600' : 'text-slate-400'}`} /> Đánh Đơn
             </button>
+            <div className="w-10 flex justify-center z-10 text-slate-300">
+                <ArrowRightLeft className="w-4 h-4" />
+            </div>
             <button 
+            type="button"
             onClick={() => setMode('doubles')}
-            className={`flex-1 flex items-center justify-center px-4 py-3 rounded-lg border-2 font-bold transition-all shadow-sm ${
-                mode === 'doubles' 
-                ? 'bg-pickle-600 border-pickle-600 text-white shadow-md' 
-                : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50 hover:border-slate-300'
+            className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-lg font-bold text-sm transition-all z-10 ${
+                mode === 'doubles' ? 'text-pickle-700' : 'text-slate-500 hover:text-slate-700'
             }`}
             >
-            <Users className="w-5 h-5 mr-2" /> Đánh Đôi
+            <Users className={`w-5 h-5 ${mode === 'doubles' ? 'text-pickle-600' : 'text-slate-400'}`} /> Đánh Đôi
             </button>
         </div>
       </div>
@@ -211,21 +213,38 @@ export const MatchRecorder: React.FC<MatchRecorderProps> = ({ players, onSave, o
                     <label className="block text-xs font-bold text-slate-700 mb-2 flex items-center gap-1">
                         <Award className="w-4 h-4" /> MỨC CƯỢC (ĐIỂM)
                     </label>
-                    <div className="flex gap-3">
-                    {[50, 100].map((points) => (
+                    <div className="flex flex-col gap-2">
                         <button
-                        key={points}
-                        type="button"
-                        onClick={() => setRankingPoints(points)}
-                        className={`flex-1 py-2 rounded-md font-bold text-sm border-2 transition-all ${
-                            rankingPoints === points
-                            ? 'bg-yellow-500 border-yellow-500 text-white shadow-md'
-                            : 'bg-white border-slate-300 text-slate-600 hover:bg-slate-50 hover:text-slate-900'
-                        }`}
+                            type="button"
+                            onClick={() => setRankingPoints(50)}
+                            className={`w-full py-2.5 rounded-xl font-black text-lg border-2 transition-all shadow-sm ${
+                                rankingPoints === 50
+                                ? 'bg-yellow-500 border-yellow-500 text-white shadow-md'
+                                : 'bg-white border-slate-300 text-slate-500 hover:bg-slate-50 hover:text-slate-900 hover:border-slate-400'
+                            }`}
                         >
-                        {points}
+                            50
                         </button>
-                    ))}
+                        <div className="w-full relative h-[48px]">
+                            <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">
+                                <Edit2 size={16} />
+                            </div>
+                            <input
+                                type="number"
+                                inputMode="numeric"
+                                pattern="[0-9]*"
+                                value={rankingPoints === 0 ? '' : (rankingPoints === 50 ? '' : rankingPoints)}
+                                onChange={(e) => setRankingPoints(Number(e.target.value) || 0)}
+                                className={`w-full h-full pl-10 pr-10 border-2 rounded-xl focus:outline-none focus:ring-4 focus:ring-yellow-100 text-lg font-black transition-all shadow-sm ${
+                                    rankingPoints !== 50 && rankingPoints !== 0
+                                    ? 'bg-yellow-50 border-yellow-500 text-yellow-700'
+                                    : 'bg-white border-slate-300 text-slate-900 focus:border-yellow-500'
+                                }`}
+                                placeholder="Điền..."
+                                min="1"
+                            />
+                            <div className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-[10px] uppercase pointer-events-none">điểm</div>
+                        </div>
                     </div>
                     <div className="mt-1 text-[10px] text-slate-500 font-medium text-center">
                     Thắng +{rankingPoints} / Thua -{rankingPoints}

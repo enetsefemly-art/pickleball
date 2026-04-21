@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { Player, Match } from '../types';
 import { Card } from './Card';
-import { Plus, Trash2, Save, User, Users, AlertCircle, Banknote, Trophy, Check } from 'lucide-react';
+import { Plus, Trash2, Save, User, Users, AlertCircle, Banknote, Trophy, Check, ArrowRightLeft, Edit2 } from 'lucide-react';
 
 interface BatchMatchRecorderProps {
   players: Player[];
@@ -233,13 +233,19 @@ export const BatchMatchRecorder: React.FC<BatchMatchRecorderProps> = ({ players,
                                 <button
                                     type="button"
                                     onClick={() => updateRow(row.id, 'mode', row.mode === 'doubles' ? 'singles' : 'doubles')}
-                                    className={`w-full py-1.5 rounded border transition-colors flex items-center justify-center gap-1 text-xs font-bold ${
+                                    className={`relative w-full py-2 rounded-lg border-2 transition-all flex flex-col items-center justify-center gap-1 text-[10px] font-black uppercase tracking-wider group ${
                                         row.mode === 'doubles' 
-                                        ? 'bg-purple-50 text-purple-700 border-purple-200' 
-                                        : 'bg-teal-50 text-teal-700 border-teal-200'
+                                        ? 'bg-purple-50 text-purple-700 border-purple-200 hover:border-purple-300 hover:bg-purple-100' 
+                                        : 'bg-teal-50 text-teal-700 border-teal-200 hover:border-teal-300 hover:bg-teal-100'
                                     }`}
                                 >
-                                    {row.mode === 'doubles' ? <><Users size={14} /> Đôi</> : <><User size={14} /> Đơn</>}
+                                    <div className="flex items-center gap-1">
+                                        {row.mode === 'doubles' ? <Users size={16} className="text-purple-600" /> : <User size={16} className="text-teal-600" />}
+                                        <span>{row.mode === 'doubles' ? 'Đôi' : 'Đơn'}</span>
+                                    </div>
+                                    <div className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                        <ArrowRightLeft size={10} className="text-slate-400" />
+                                    </div>
                                 </button>
                             </td>
 
@@ -324,22 +330,38 @@ export const BatchMatchRecorder: React.FC<BatchMatchRecorderProps> = ({ players,
                             <td className="py-3 px-2 text-center border-l border-slate-200">
                                 <div className="flex flex-col gap-2 justify-center items-center">
                                     {matchType === 'betting' ? (
-                                        <>
+                                        <div className="flex flex-col gap-1 w-full justify-center">
                                             <button
                                                 type="button"
                                                 onClick={() => updateRow(row.id, 'rankingPoints', 50)}
-                                                className={`w-full text-[10px] px-2 py-1 rounded border transition-all ${row.rankingPoints === 50 ? 'bg-yellow-500 border-yellow-500 text-white shadow-sm scale-105' : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'}`}
+                                                className={`w-full py-1.5 rounded-lg border-2 transition-all text-xs font-bold ${
+                                                    row.rankingPoints === 50 
+                                                    ? 'bg-yellow-500 border-yellow-500 text-white shadow-sm z-10' 
+                                                    : 'bg-white text-slate-500 border-slate-200 hover:border-slate-400 hover:bg-slate-50'
+                                                }`}
                                             >
                                                 50
                                             </button>
-                                            <button
-                                                type="button"
-                                                onClick={() => updateRow(row.id, 'rankingPoints', 100)}
-                                                className={`w-full text-[10px] px-2 py-1 rounded border transition-all ${row.rankingPoints === 100 ? 'bg-yellow-500 border-yellow-500 text-white shadow-sm scale-105' : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'}`}
-                                            >
-                                                100
-                                            </button>
-                                        </>
+                                            <div className="relative w-full">
+                                                <div className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">
+                                                    <Edit2 size={12} />
+                                                </div>
+                                                <input
+                                                    type="number"
+                                                    inputMode="numeric"
+                                                    pattern="[0-9]*"
+                                                    value={row.rankingPoints === 0 ? '' : (row.rankingPoints === 50 ? '' : row.rankingPoints)}
+                                                    onChange={(e) => updateRow(row.id, 'rankingPoints', Number(e.target.value) || 0)}
+                                                    className={`w-full text-center px-6 py-1.5 border-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-200 font-bold shadow-sm text-xs transition-all ${
+                                                        row.rankingPoints !== 50 && row.rankingPoints !== 0
+                                                        ? 'border-yellow-500 text-yellow-700 bg-yellow-50'
+                                                        : 'bg-white border-slate-200 text-slate-900 focus:border-yellow-500'
+                                                    }`}
+                                                    placeholder="Điền..."
+                                                    min="1"
+                                                />
+                                            </div>
+                                        </div>
                                     ) : (
                                         <span className="text-xs text-slate-400 italic">N/A</span>
                                     )}
@@ -374,13 +396,14 @@ export const BatchMatchRecorder: React.FC<BatchMatchRecorderProps> = ({ players,
                              <button
                                 type="button"
                                 onClick={() => updateRow(row.id, 'mode', row.mode === 'doubles' ? 'singles' : 'doubles')}
-                                className={`flex items-center gap-1 px-2 py-1 rounded text-xs font-bold border ${
+                                className={`flex items-center gap-1 px-3 py-1 rounded-md text-xs font-bold border transition-colors ${
                                     row.mode === 'doubles' 
-                                    ? 'bg-purple-100 text-purple-700 border-purple-200' 
-                                    : 'bg-teal-100 text-teal-700 border-teal-200'
+                                    ? 'bg-purple-100 text-purple-700 border-purple-200 hover:bg-purple-200' 
+                                    : 'bg-teal-100 text-teal-700 border-teal-200 hover:bg-teal-200'
                                 }`}
                             >
                                 {row.mode === 'doubles' ? <><Users size={12} /> Đôi</> : <><User size={12} /> Đơn</>}
+                                <ArrowRightLeft size={10} className="ml-1 opacity-50" />
                             </button>
                          </div>
                          <div className="flex items-center gap-2">
@@ -391,6 +414,43 @@ export const BatchMatchRecorder: React.FC<BatchMatchRecorderProps> = ({ players,
                              )}
                          </div>
                     </div>
+
+                    {matchType === 'betting' && (
+                        <div className="px-3 pt-3">
+                            <div className="flex gap-2 h-12 w-full">
+                                <button
+                                    type="button"
+                                    onClick={() => updateRow(row.id, 'rankingPoints', 50)}
+                                    className={`flex-[1] min-w-[70px] rounded-xl border-2 transition-all text-lg font-black shadow-sm ${
+                                        row.rankingPoints === 50
+                                        ? 'bg-yellow-500 border-yellow-500 text-white shadow-md'
+                                        : 'bg-white text-slate-500 border-slate-300 hover:border-slate-400'
+                                    }`}
+                                >
+                                    50
+                                </button>
+                                <div className="flex-[2] relative">
+                                    <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">
+                                        <Edit2 size={16} />
+                                    </div>
+                                    <input
+                                        type="number"
+                                        inputMode="numeric"
+                                        pattern="[0-9]*"
+                                        value={row.rankingPoints === 0 ? '' : (row.rankingPoints === 50 ? '' : row.rankingPoints)}
+                                        onChange={(e) => updateRow(row.id, 'rankingPoints', Number(e.target.value) || 0)}
+                                        className={`w-full h-full text-center text-lg pl-8 pr-4 border-2 rounded-xl focus:outline-none focus:ring-4 focus:ring-yellow-100 font-black shadow-sm transition-all ${
+                                            row.rankingPoints !== 50 && row.rankingPoints !== 0
+                                            ? 'bg-yellow-50 border-yellow-500 text-yellow-700'
+                                            : 'bg-white border-slate-300 text-slate-900 focus:border-yellow-500'
+                                        }`}
+                                        placeholder="Điền..."
+                                        min="1"
+                                    />
+                                </div>
+                            </div>
+                        </div>
+                    )}
 
                     <div className="p-3 space-y-3">
                         {/* Team 1 Section */}
@@ -424,45 +484,22 @@ export const BatchMatchRecorder: React.FC<BatchMatchRecorderProps> = ({ players,
 
                          {/* Scores & Points */}
                         <div className="grid grid-cols-5 gap-2 items-center">
-                            <div className="col-span-3 flex justify-center gap-1 bg-slate-50 p-2 rounded border border-slate-100">
+                            <div className="col-span-5 flex justify-center gap-2 bg-slate-50 p-3 rounded-lg border border-slate-200">
                                 <input 
                                     type="number"
                                     value={row.score1}
                                     onChange={(e) => updateRow(row.id, 'score1', e.target.value)}
-                                    className="w-12 h-10 text-center font-bold text-lg text-green-700 bg-white border border-green-200 rounded focus:outline-none focus:ring-1 focus:ring-green-500"
+                                    className="w-14 h-12 text-center font-black text-2xl text-green-700 bg-white border-2 border-green-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 shadow-sm"
                                     placeholder="0"
                                 />
-                                <span className="text-slate-300 font-bold self-center">:</span>
+                                <span className="text-slate-300 font-bold self-center text-xl">:</span>
                                 <input 
                                     type="number"
                                     value={row.score2}
                                     onChange={(e) => updateRow(row.id, 'score2', e.target.value)}
-                                    className="w-12 h-10 text-center font-bold text-lg text-blue-700 bg-white border border-blue-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                    className="w-14 h-12 text-center font-black text-2xl text-blue-700 bg-white border-2 border-blue-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-sm"
                                     placeholder="0"
                                 />
-                            </div>
-
-                            <div className="col-span-2 flex flex-col gap-1">
-                                {matchType === 'betting' ? (
-                                    <>
-                                        <button
-                                            type="button"
-                                            onClick={() => updateRow(row.id, 'rankingPoints', 50)}
-                                            className={`flex-1 rounded text-[10px] font-bold border ${row.rankingPoints === 50 ? 'bg-yellow-500 border-yellow-500 text-white' : 'bg-slate-50 text-slate-400 border-slate-200'}`}
-                                        >
-                                            50
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={() => updateRow(row.id, 'rankingPoints', 100)}
-                                            className={`flex-1 rounded text-[10px] font-bold border ${row.rankingPoints === 100 ? 'bg-yellow-500 border-yellow-500 text-white' : 'bg-slate-50 text-slate-400 border-slate-200'}`}
-                                        >
-                                            100
-                                        </button>
-                                    </>
-                                ) : (
-                                    <div className="h-full flex items-center justify-center text-xs text-slate-300 italic border rounded bg-slate-50">N/A</div>
-                                )}
                             </div>
                         </div>
 
