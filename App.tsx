@@ -10,7 +10,7 @@ import {
     addPlayerToCloud, deletePlayerFromCloud, updateTournamentInCloud, activeListeners
 } from './services/firebaseService';
 import { auth, db } from './firebase';
-import { signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut, User } from 'firebase/auth';
+import { onAuthStateChanged, User } from 'firebase/auth';
 import { Leaderboard } from './components/Leaderboard';
 import { BatchMatchRecorder } from './components/BatchMatchRecorder';
 import { DashboardStats } from './components/DashboardStats';
@@ -21,7 +21,7 @@ import { Analysis } from './components/Analysis';
 import { AiMatchmaker } from './components/AiMatchmaker'; 
 import { CloudSync } from './components/CloudSync';
 import { Banner } from './components/Banner';
-import { LayoutDashboard, History, Trophy, PlusCircle, Swords, Zap, Cloud, Loader2, AlertCircle, Scale, Plus, BrainCircuit, Users, Image as ImageIcon, LogOut, LogIn, Bug } from 'lucide-react';
+import { LayoutDashboard, History, Trophy, PlusCircle, Swords, Zap, Cloud, Loader2, AlertCircle, Scale, Plus, BrainCircuit, Users, Image as ImageIcon, Bug } from 'lucide-react';
 
 const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
@@ -57,24 +57,6 @@ const App: React.FC = () => {
     });
     return () => unsubscribe();
   }, []);
-
-  const handleLogin = async () => {
-    const provider = new GoogleAuthProvider();
-    try {
-      await signInWithPopup(auth, provider);
-    } catch (error) {
-      console.error("Login failed", error);
-      alert("Đăng nhập thất bại. Vui lòng thử lại.");
-    }
-  };
-
-  const handleLogout = async () => {
-    try {
-      await signOut(auth);
-    } catch (error) {
-      console.error("Logout failed", error);
-    }
-  };
 
   // --- REALTIME INITIALIZATION ---
   useEffect(() => {
@@ -470,29 +452,6 @@ const App: React.FC = () => {
              >
                 <ImageIcon size={20} />
              </button>
-
-             <div className="w-px h-6 bg-slate-700 mx-1"></div>
-
-             {/* Auth Button */}
-             {user ? (
-                 <button 
-                    onClick={handleLogout}
-                    className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors text-sm font-medium"
-                    title="Đăng xuất"
-                 >
-                    <LogOut size={16} />
-                    <span className="hidden sm:inline">{user.email?.split('@')[0]}</span>
-                 </button>
-             ) : (
-                 <button 
-                    onClick={handleLogin}
-                    className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-pickle-600 hover:bg-pickle-500 text-white transition-colors text-sm font-bold shadow-md"
-                    title="Đăng nhập"
-                 >
-                    <LogIn size={16} />
-                    <span className="hidden sm:inline">Đăng nhập</span>
-                 </button>
-             )}
           </div>
         </div>
       </header>
