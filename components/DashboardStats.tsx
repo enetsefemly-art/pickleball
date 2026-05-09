@@ -1,9 +1,9 @@
 import React, { useMemo, useState } from 'react';
 import { Match, Player } from '../types';
 import { Card } from './Card';
-import { TrendingUp, Users, Banknote, Calendar, Grid3X3, Award, TrendingDown, Activity, Minus, Scale, ArrowUpCircle, ArrowDownCircle, ArrowRightLeft, ArrowUpDown, Percent, Hash } from 'lucide-react';
+import { TrendingUp, Users, Banknote, Calendar, Grid3X3, Award, TrendingDown, Activity, Minus, Scale, ArrowUpCircle, ArrowDownCircle, ArrowRightLeft, ArrowUpDown, Percent, Hash, User } from 'lucide-react';
 import { HeadToHeadMatrix } from './HeadToHeadMatrix';
-import { getDailyRatingHistory } from '../services/storageService';
+import { getDailyRatingHistory, calculatePlayerStats } from '../services/storageService';
 import { analyzeHistoryHandicaps } from '../services/autoMatchmaker';
 
 interface DashboardStatsProps {
@@ -45,7 +45,28 @@ type SortMetric = 'count' | 'rate';
 type SortDirection = 'asc' | 'desc';
 type SortKey = 'name' | 'total' | 'balanced' | 'underdog' | 'favorite';
 
-export const DashboardStats: React.FC<DashboardStatsProps> = ({ matches, players }) => {
+export const DashboardStats: React.FC<DashboardStatsProps> = ({ matches: sourceMatches, players: sourcePlayers }) => {
+  // Mode filter (Singles vs Doubles separate)
+  const [dashboardMode, setDashboardMode] = useState<'doubles' | 'singles'>('doubles');
+
+  // Filter matches based on singles/doubles mode
+  const modeMatches = useMemo(() => {
+      return sourceMatches.filter(m => {
+          const isDoubles = m.team1.length > 1 || m.team2.length > 1;
+          return dashboardMode === 'doubles' ? isDoubles : !isDoubles;
+      });
+  }, [sourceMatches, dashboardMode]);
+
+  // Recalculate players based solely on modeMatches
+  const modePlayers = useMemo(() => {
+      // Recalculate will also fix up their tournamentRating and records (matchesPlayed, wins, etc.) solely for this mode
+      return calculatePlayerStats(sourcePlayers, modeMatches);
+  }, [sourcePlayers, modeMatches]);
+
+  // Rename locally so rest of component just "works" mapping matches to modeMatches
+  const matches = modeMatches;
+  const players = modePlayers;
+
   // Added 'all' to allowed state types
   const [winrateTab, setWinrateTab] = useState<'betting' | 'tournament' | 'tour' | 'all'>('all');
   
@@ -81,6 +102,7 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({ matches, players
   // Filter out inactive players for highlights and tables
   const activePlayers = useMemo(() => players.filter(p => p.isActive !== false), [players]);
   const activePlayerIds = useMemo(() => new Set(activePlayers.map(p => String(p.id))), [activePlayers]);
+
 
   // --- GET AVAILABLE MONTHS FOR DROPDOWN ---
   const availableMonths = useMemo(() => {
@@ -661,6 +683,32 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({ matches, players
 
   return (
     <div className="space-y-6">
+      {/* GLOBAL DASHBOARD MODE TOGGLE */}
+      <div className="flex bg-slate-200 rounded-xl p-1 mb-2">
+          <button 
+              onClick={() => setDashboardMode('doubles')}
+              className={`flex-1 flex justify-center items-center gap-2 py-2.5 rounded-lg text-sm sm:text-base font-black transition-all shadow-sm ${
+                  dashboardMode === 'doubles' 
+                  ? 'bg-purple-600 text-white shadow-md' 
+                  : 'bg-transparent text-slate-500 hover:text-slate-800'
+              }`}
+          >
+              <Users className="w-5 h-5" />
+              Chỉ Số Đánh Đôi
+          </button>
+          <button 
+              onClick={() => setDashboardMode('singles')}
+              className={`flex-1 flex justify-center items-center gap-2 py-2.5 rounded-lg text-sm sm:text-base font-black transition-all shadow-sm ${
+                  dashboardMode === 'singles' 
+                  ? 'bg-teal-600 text-white shadow-md' 
+                  : 'bg-transparent text-slate-500 hover:text-slate-800'
+              }`}
+          >
+              <User className="w-5 h-5" />
+              Chỉ Số Đánh Đơn
+          </button>
+      </div>
+
       {/* Month Header / Global Filter for Highlights & Betting Points */}
       <div className="flex items-center gap-2 text-slate-600 font-bold bg-slate-100 w-fit px-3 py-1 rounded-full text-xs sm:text-sm">
         <Calendar className="w-4 h-4" />
@@ -696,11 +744,11 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({ matches, players
         </div>
 
         {/* Card 2: Cặp Đôi Bú */}
-        <div className="snap-center min-w-[85vw] md:min-w-0 bg-gradient-to-br from-purple-500 to-indigo-600 rounded-xl p-5 text-white shadow-lg relative overflow-hidden flex-shrink-0">
-            <Users className="absolute -right-4 -bottom-4 w-24 h-24 text-white/20 rotate-12" />
+        <div className={`snap-center min-w-[85vw] md:min-w-0 bg-gradient-to-br ${dashboardMode === 'doubles' ? 'from-purple-500 to-indigo-600' : 'from-teal-500 to-cyan-600'} rounded-xl p-5 text-white shadow-lg relative overflow-hidden flex-shrink-0`}>
+            {dashboardMode === 'doubles' ? <Users className="absolute -right-4 -bottom-4 w-24 h-24 text-white/20 rotate-12" /> : <User className="absolute -right-4 -bottom-4 w-24 h-24 text-white/20 rotate-12" />}
             <div className="relative z-10">
-                <div className="flex items-center gap-2 mb-2 text-purple-100 text-xs sm:text-sm font-bold uppercase tracking-wider">
-                    <Users className="w-4 h-4" /> Cặp Đôi Bú
+                <div className="flex items-center gap-2 mb-2 text-white/70 text-xs sm:text-sm font-bold uppercase tracking-wider">
+                    {dashboardMode === 'doubles' ? <><Users className="w-4 h-4" /> Cặp Đôi Bú</> : <><User className="w-4 h-4" /> Cá Nhân Bú</>}
                 </div>
                 <h3 className="text-xl font-bold truncate">{bestBettingPair.names}</h3>
                 <div className="flex items-end gap-2 mt-1">
@@ -1058,7 +1106,7 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({ matches, players
          <div className="flex flex-col xl:flex-row items-center justify-between border-b border-slate-100 p-4 gap-4 bg-slate-50/50">
             <h3 className="font-bold text-slate-800 flex items-center gap-2 text-sm sm:text-base">
                 <TrendingUp className="w-5 h-5 text-slate-500" />
-                Tỉ Lệ Thắng Cặp Đôi
+                {dashboardMode === 'doubles' ? 'Tỉ Lệ Thắng Cặp Đôi' : 'Tỉ Lệ Thắng Cá Nhân'}
             </h3>
             
             <div className="flex flex-col sm:flex-row gap-2 w-full xl:w-auto">
@@ -1123,7 +1171,7 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({ matches, players
             <table className="w-full text-sm text-left table-fixed">
                 <thead className="bg-slate-50 text-slate-500 font-bold text-[10px] sm:text-xs uppercase">
                     <tr>
-                        <th className="px-2 sm:px-4 py-3 text-slate-700 w-[55%] sm:w-auto">Cặp Đôi</th>
+                        <th className="px-2 sm:px-4 py-3 text-slate-700 w-[55%] sm:w-auto">{dashboardMode === 'doubles' ? 'Cặp Đôi' : 'Người Chơi'}</th>
                         <th className="hidden sm:table-cell px-2 sm:px-4 py-3 text-center text-slate-700">Số Trận</th>
                         <th className="px-1 sm:px-4 py-3 text-center text-slate-700 w-[25%] sm:w-auto">Thắng/Thua</th>
                         <th className="px-2 sm:px-4 py-3 text-right text-slate-700 w-[20%] sm:w-auto">Rate</th>
@@ -1167,12 +1215,12 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({ matches, players
       </Card>
 
       {/* 5. BETTING POINTS TABLE */}
-      <Card title="Bảng Điểm Cược Cặp Đôi" className="p-0 sm:p-6" classNameTitle="px-4 sm:px-6">
+      <Card title={dashboardMode === 'doubles' ? "Bảng Điểm Cược Cặp Đôi" : "Bảng Điểm Cược Cá Nhân"} className="p-0 sm:p-6" classNameTitle="px-4 sm:px-6">
         <div className="w-full">
             <table className="w-full text-sm text-left table-fixed">
                 <thead className="bg-slate-50 text-slate-500 font-bold text-[10px] sm:text-xs uppercase">
                     <tr>
-                        <th className="px-2 sm:px-4 py-3 text-slate-700 w-[60%] sm:w-auto">Cặp Đôi</th>
+                        <th className="px-2 sm:px-4 py-3 text-slate-700 w-[60%] sm:w-auto">{dashboardMode === 'doubles' ? 'Cặp Đôi' : 'Người Chơi'}</th>
                         <th className="hidden sm:table-cell px-2 sm:px-4 py-3 text-center text-slate-700">Số Trận Kèo</th>
                         <th className="px-2 sm:px-4 py-3 text-right text-slate-700 w-[40%] sm:w-auto">Điểm</th>
                     </tr>
