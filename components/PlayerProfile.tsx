@@ -18,6 +18,7 @@ interface RivalStats {
     matchesWith: number; // Matches played against
     winsAgainst: number;
     winRate: number;
+    netWins: number;
 }
 
 interface PartnerStats {
@@ -140,7 +141,8 @@ export const PlayerProfile: React.FC<PlayerProfileProps> = ({ player, players, m
             name: p ? p.name : `Người cũ (${id.slice(-3)})`,
             matchesWith: stat.total,
             winsAgainst: stat.wins,
-            winRate: stat.total > 0 ? stat.wins / stat.total : 0
+            winRate: stat.total > 0 ? stat.wins / stat.total : 0,
+            netWins: stat.wins - (stat.total - stat.wins) // Thêm thuộc tính hiệu số
         };
     });
 
@@ -153,23 +155,23 @@ export const PlayerProfile: React.FC<PlayerProfileProps> = ({ player, players, m
     // Filter Rivals for Highlights: At least 3 matches against
     const eligibleRivals = rivals.filter(r => r.matchesWith >= 3);
 
-    // Find "Con mồi" (Highest Win Rate)
+    // Find "Con mồi" (Highest netWins - Hiệu số thắng/thua cao nhất)
     let prey = eligibleRivals.length > 0 ? [...eligibleRivals]
         .sort((a, b) => {
-            if (b.winRate !== a.winRate) return b.winRate - a.winRate; 
-            return b.matchesWith - a.matchesWith;
+            if (b.netWins !== a.netWins) return b.netWins - a.netWins; // Ưu tiên hiệu số cao
+            return b.matchesWith - a.matchesWith; // Nếu bằng hiệu số thì ưu tiên đánh nhiều hơn
         })[0] : undefined;
 
-    // Find "Kị giơ" (Lowest Win Rate)
+    // Find "Kị giơ" (Lowest netWins - Hiệu số thắng/thua thấp nhất / âm nhiều nhất)
     let nemesis = eligibleRivals.length > 0 ? [...eligibleRivals]
         .sort((a, b) => {
-            if (a.winRate !== b.winRate) return a.winRate - b.winRate; 
-            return b.matchesWith - a.matchesWith;
+            if (a.netWins !== b.netWins) return a.netWins - b.netWins; // Ưu tiên hiệu số thấp (âm nặng)
+            return b.matchesWith - a.matchesWith; // Nếu bằng hiệu số thì ưu tiên đánh nhiều hơn
         })[0] : undefined;
     
     // Conflict Resolution
     if (prey && nemesis && prey.id === nemesis.id) {
-         if (prey.winRate >= 0.5) nemesis = undefined;
+         if (prey.netWins >= 0) nemesis = undefined;
          else prey = undefined;
     }
 
@@ -499,10 +501,10 @@ export const PlayerProfile: React.FC<PlayerProfileProps> = ({ player, players, m
                                                 <div className="text-lg font-bold text-slate-800">{analysis.prey.name}</div>
                                                 <div className="flex items-center gap-2 mt-1 text-xs">
                                                     <span className="font-mono font-bold text-green-600 bg-green-50 px-2 py-0.5 rounded">
-                                                        {Math.round(analysis.prey.winRate * 100)}% Thắng
+                                                        +{analysis.prey.netWins} Hiệu số
                                                     </span>
                                                     <span className="text-slate-400">
-                                                        / {analysis.prey.matchesWith} trận
+                                                        / {analysis.prey.matchesWith} trận đối đầu
                                                     </span>
                                                 </div>
                                             </div>
@@ -524,10 +526,10 @@ export const PlayerProfile: React.FC<PlayerProfileProps> = ({ player, players, m
                                                 <div className="text-lg font-bold text-slate-800">{analysis.nemesis.name}</div>
                                                 <div className="flex items-center gap-2 mt-1 text-xs">
                                                     <span className="font-mono font-bold text-red-500 bg-red-50 px-2 py-0.5 rounded">
-                                                        {Math.round((1 - analysis.nemesis.winRate) * 100)}% Thua
+                                                        {analysis.nemesis.netWins} Hiệu số
                                                     </span>
                                                     <span className="text-slate-400">
-                                                        / {analysis.nemesis.matchesWith} trận
+                                                        / {analysis.nemesis.matchesWith} trận đối đầu
                                                     </span>
                                                 </div>
                                             </div>
