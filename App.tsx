@@ -215,7 +215,10 @@ const App: React.FC = () => {
       const previousPlayers = [...players];
 
       // Optimistic update
-      const updatedMatches = [...matches, ...newMatches];
+      const newMatchIds = new Set(newMatches.map(m => m.id));
+      const filteredMatches = matches.filter(m => !newMatchIds.has(m.id));
+      const updatedMatches = [...filteredMatches, ...newMatches];
+
       const updatedPlayers = calculatePlayerStats(players, updatedMatches);
       setMatches(updatedMatches);
       setPlayers(updatedPlayers);

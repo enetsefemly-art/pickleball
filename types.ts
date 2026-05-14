@@ -13,6 +13,7 @@ export interface Player {
   tournamentRating?: number; 
   championships?: number; 
   isActive?: boolean; 
+  pool?: string;
 }
 
 export interface Match {
@@ -96,6 +97,15 @@ export interface TeamMatchScheduleItem {
     hopeStarTeam2?: boolean;
 }
 
+export interface TeamDraftTurn {
+    turnNumber: number;
+    team1Pairs: [string, string][];
+    team2Pairs: [string, string][];
+    team1Locked: boolean;
+    team2Locked: boolean;
+    isRevealed: boolean;
+}
+
 export interface TournamentState {
     isActive: boolean;
     mode?: 'round-robin' | 'team-match'; // Default to 'round-robin' if undefined
@@ -108,4 +118,7 @@ export interface TournamentState {
     // Team Match Data
     groups?: TeamGroup[];
     groupSchedule?: TeamMatchScheduleItem[];
+    drafts?: TeamDraftTurn[];
+    matchesPerTurn?: number;
+    matchSetups?: string[];
 }

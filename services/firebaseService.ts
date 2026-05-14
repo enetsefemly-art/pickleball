@@ -105,7 +105,10 @@ export const subscribeToConfig = (callback: (tournament: TournamentState | null,
                     teams: typeof data.teams === 'string' ? JSON.parse(data.teams) : data.teams,
                     schedule: typeof data.schedule === 'string' ? JSON.parse(data.schedule) : data.schedule,
                     groups: typeof data.groups === 'string' ? JSON.parse(data.groups) : data.groups,
-                    groupSchedule: typeof data.groupSchedule === 'string' ? JSON.parse(data.groupSchedule) : data.groupSchedule
+                    groupSchedule: typeof data.groupSchedule === 'string' ? JSON.parse(data.groupSchedule) : data.groupSchedule,
+                    drafts: typeof data.drafts === 'string' ? JSON.parse(data.drafts) : data.drafts,
+                    matchesPerTurn: data.matchesPerTurn || 3,
+                    matchSetups: typeof data.matchSetups === 'string' ? JSON.parse(data.matchSetups) : data.matchSetups
                 };
             }
             if (doc.id === 'app') {
@@ -207,7 +210,10 @@ export const updateTournamentInCloud = async (tournament: TournamentState | null
                 teams: tournament.teams ? JSON.stringify(tournament.teams) : null,
                 schedule: tournament.schedule ? JSON.stringify(tournament.schedule) : null,
                 groups: tournament.groups ? JSON.stringify(tournament.groups) : null,
-                groupSchedule: tournament.groupSchedule ? JSON.stringify(tournament.groupSchedule) : null
+                groupSchedule: tournament.groupSchedule ? JSON.stringify(tournament.groupSchedule) : null,
+                drafts: tournament.drafts ? JSON.stringify(tournament.drafts) : null,
+                matchesPerTurn: tournament.matchesPerTurn || 3,
+                matchSetups: tournament.matchSetups ? JSON.stringify(tournament.matchSetups) : null
             };
             await setDoc(doc(db, 'config', 'tournament'), cleanData(tDoc));
         } else {
