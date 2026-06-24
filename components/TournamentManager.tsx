@@ -944,6 +944,7 @@ const TeamMatchManager: React.FC<TournamentManagerProps> = ({
     const [numTurns, setNumTurns] = useState<number>(3);
     const [matchesPerTurn, setMatchesPerTurn] = useState<number>(3);
     const [matchSetups, setMatchSetups] = useState<string[]>(Array(3).fill(''));
+    const [matchGroupSetups, setMatchGroupSetups] = useState<[string, string][]>(Array(3).fill(['', '']));
     const [showAllPlayers, setShowAllPlayers] = useState(false);
     
     // Teams State
@@ -1073,7 +1074,8 @@ const TeamMatchManager: React.FC<TournamentManagerProps> = ({
             groupSchedule: initialSchedule,
             drafts: initialDrafts,
             matchesPerTurn: matchesPerTurn,
-            matchSetups: matchSetups
+            matchSetups: matchSetups,
+            matchGroupSetups: matchGroupSetups
         };
         onUpdateTournament(newState);
         setSchedule(initialSchedule);
@@ -1245,10 +1247,15 @@ const TeamMatchManager: React.FC<TournamentManagerProps> = ({
         const newSchedule = [...schedule];
         const mPerTurn = tournamentData?.matchesPerTurn || 3;
         
-        // Generate round-robin matches among all groups for this turn
         for (let i = 0; i < mPerTurn; i++) {
-            for (let gIdx1 = 0; gIdx1 < groups.length - 1; gIdx1++) {
-                for (let gIdx2 = gIdx1 + 1; gIdx2 < groups.length; gIdx2++) {
+            const index = turnIndex * mPerTurn + i;
+            const groupSetup = tournamentData?.matchGroupSetups?.[index];
+
+            if (groupSetup && groupSetup[0] !== '' && groupSetup[1] !== '') {
+                const gIdx1 = Number(groupSetup[0]);
+                const gIdx2 = Number(groupSetup[1]);
+                
+                if (gIdx1 >= 0 && gIdx1 < groups.length && gIdx2 >= 0 && gIdx2 < groups.length && gIdx1 !== gIdx2) {
                     const g1 = groups[gIdx1];
                     const g2 = groups[gIdx2];
                     
@@ -1258,25 +1265,59 @@ const TeamMatchManager: React.FC<TournamentManagerProps> = ({
                     const pair1 = pairs1?.[i];
                     const pair2 = pairs2?.[i];
                     
-                    if (!pair1 || !pair2) continue;
+                    if (pair1 && pair2) {
+                        const t1p1 = players.find(p => String(p.id) === pair1[0]);
+                        const t1p2 = players.find(p => String(p.id) === pair1[1]);
+                        const t2p1 = players.find(p => String(p.id) === pair2[0]);
+                        const t2p2 = players.find(p => String(p.id) === pair2[1]);
 
-                    const t1p1 = players.find(p => String(p.id) === pair1[0]);
-                    const t1p2 = players.find(p => String(p.id) === pair1[1]);
-                    const t2p1 = players.find(p => String(p.id) === pair2[0]);
-                    const t2p2 = players.find(p => String(p.id) === pair2[1]);
+                        if(t1p1 && t1p2 && t2p1 && t2p2) {
+                            newSchedule.push({
+                                id: `draft_${Date.now()}_t${turnIndex}_m${i}_g${g1.id}_g${g2.id}`,
+                                group1Id: g1.id,
+                                group2Id: g2.id,
+                                pair1: [t1p1, t1p2],
+                                pair2: [t2p1, t2p2],
+                                score1: '',
+                                score2: '',
+                                isCompleted: false
+                            });
+                        }
+                    }
+                }
+            } else {
+                // Generate round-robin matches among all groups for this turn
+                for (let gIdx1 = 0; gIdx1 < groups.length - 1; gIdx1++) {
+                    for (let gIdx2 = gIdx1 + 1; gIdx2 < groups.length; gIdx2++) {
+                        const g1 = groups[gIdx1];
+                        const g2 = groups[gIdx2];
+                        
+                        const pairs1 = turn.teamPairs?.[g1.id] || (gIdx1 === 0 ? turn.team1Pairs : (gIdx1 === 1 ? turn.team2Pairs : []));
+                        const pairs2 = turn.teamPairs?.[g2.id] || (gIdx2 === 0 ? turn.team1Pairs : (gIdx2 === 1 ? turn.team2Pairs : []));
+                        
+                        const pair1 = pairs1?.[i];
+                        const pair2 = pairs2?.[i];
+                        
+                        if (!pair1 || !pair2) continue;
 
-                    // Only create match if both pairs are fully populated
-                    if(t1p1 && t1p2 && t2p1 && t2p2) {
-                        newSchedule.push({
-                            id: `draft_${Date.now()}_t${turnIndex}_m${i}_g${g1.id}_g${g2.id}`,
-                            group1Id: g1.id,
-                            group2Id: g2.id,
-                            pair1: [t1p1, t1p2],
-                            pair2: [t2p1, t2p2],
-                            score1: '',
-                            score2: '',
-                            isCompleted: false
-                        });
+                        const t1p1 = players.find(p => String(p.id) === pair1[0]);
+                        const t1p2 = players.find(p => String(p.id) === pair1[1]);
+                        const t2p1 = players.find(p => String(p.id) === pair2[0]);
+                        const t2p2 = players.find(p => String(p.id) === pair2[1]);
+
+                        // Only create match if both pairs are fully populated
+                        if(t1p1 && t1p2 && t2p1 && t2p2) {
+                            newSchedule.push({
+                                id: `draft_${Date.now()}_t${turnIndex}_m${i}_g${g1.id}_g${g2.id}`,
+                                group1Id: g1.id,
+                                group2Id: g2.id,
+                                pair1: [t1p1, t1p2],
+                                pair2: [t2p1, t2p2],
+                                score1: '',
+                                score2: '',
+                                isCompleted: false
+                            });
+                        }
                     }
                 }
             }
@@ -1346,6 +1387,12 @@ const TeamMatchManager: React.FC<TournamentManagerProps> = ({
                                         if (total > prev.length) return [...next, ...Array(total - prev.length).fill('')];
                                         return next.slice(0, total);
                                     });
+                                    setMatchGroupSetups(prev => {
+                                        const total = val * matchesPerTurn;
+                                        const next = [...prev];
+                                        if (total > prev.length) return [...next, ...Array(total - prev.length).fill(['', ''])];
+                                        return next.slice(0, total);
+                                    });
                                 }}
                                 className="w-16 p-2 border rounded font-bold text-center"
                             />
@@ -1361,6 +1408,12 @@ const TeamMatchManager: React.FC<TournamentManagerProps> = ({
                                         const total = numTurns * val;
                                         const next = [...prev];
                                         if (total > prev.length) return [...next, ...Array(total - prev.length).fill('')];
+                                        return next.slice(0, total);
+                                    });
+                                    setMatchGroupSetups(prev => {
+                                        const total = numTurns * val;
+                                        const next = [...prev];
+                                        if (total > prev.length) return [...next, ...Array(total - prev.length).fill(['', ''])];
                                         return next.slice(0, total);
                                     });
                                 }}
@@ -1526,11 +1579,42 @@ const TeamMatchManager: React.FC<TournamentManagerProps> = ({
                                         {Array.from({length: matchesPerTurn}).map((_, mIdx) => {
                                             const index = tIdx * matchesPerTurn + mIdx;
                                             return (
-                                                <div key={mIdx} className="flex flex-col gap-1">
-                                                    <label className="text-xs font-bold text-slate-600">Trận {mIdx + 1}</label>
+                                                <div key={mIdx} className="flex flex-col gap-2 p-2 bg-white rounded border border-slate-200">
+                                                    <label className="text-xs font-bold text-slate-600 text-center border-b pb-1">Trận {mIdx + 1}</label>
+                                                    <div className="flex items-center gap-1 justify-center">
+                                                        <select 
+                                                            value={matchGroupSetups[index]?.[0] || ''}
+                                                            onChange={(e) => {
+                                                                const newGroupSetups = [...matchGroupSetups];
+                                                                newGroupSetups[index] = [e.target.value, matchGroupSetups[index]?.[1] || ''];
+                                                                setMatchGroupSetups(newGroupSetups);
+                                                            }}
+                                                            className="text-xs p-1 rounded border bg-slate-50 font-bold"
+                                                        >
+                                                            <option value="">Team 1</option>
+                                                            {Array.from({length: numTeams}).map((_, i) => (
+                                                                <option key={i} value={i}>T{i+1}</option>
+                                                            ))}
+                                                        </select>
+                                                        <span className="text-[10px] text-slate-400 font-bold">vs</span>
+                                                        <select 
+                                                            value={matchGroupSetups[index]?.[1] || ''}
+                                                            onChange={(e) => {
+                                                                const newGroupSetups = [...matchGroupSetups];
+                                                                newGroupSetups[index] = [matchGroupSetups[index]?.[0] || '', e.target.value];
+                                                                setMatchGroupSetups(newGroupSetups);
+                                                            }}
+                                                            className="text-xs p-1 rounded border bg-slate-50 font-bold"
+                                                        >
+                                                            <option value="">Team 2</option>
+                                                            {Array.from({length: numTeams}).map((_, i) => (
+                                                                <option key={i} value={i}>T{i+1}</option>
+                                                            ))}
+                                                        </select>
+                                                    </div>
                                                     <input 
                                                         type="text" 
-                                                        placeholder="VD: AA, AB" 
+                                                        placeholder="Pool (VD: AB)" 
                                                         value={matchSetups[index] || ''}
                                                         onChange={(e) => {
                                                             const newSetups = [...matchSetups];
@@ -1538,7 +1622,7 @@ const TeamMatchManager: React.FC<TournamentManagerProps> = ({
                                                             setMatchSetups(newSetups);
                                                         }}
                                                         maxLength={10}
-                                                        className="p-2 border rounded font-bold text-center uppercase"
+                                                        className="p-1.5 border rounded text-xs font-bold text-center uppercase"
                                                     />
                                                 </div>
                                             );

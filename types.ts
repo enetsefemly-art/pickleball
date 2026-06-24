@@ -123,4 +123,5 @@ export interface TournamentState {
     drafts?: TeamDraftTurn[];
     matchesPerTurn?: number;
     matchSetups?: string[];
+    matchGroupSetups?: [string, string][];
 }
