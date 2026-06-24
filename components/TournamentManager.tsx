@@ -956,7 +956,7 @@ const TeamMatchManager: React.FC<TournamentManagerProps> = ({
 
     // Draft State (for play mode)
     const [drafts, setDrafts] = useState<TeamDraftTurn[]>([]);
-    const [localRole, setLocalRole] = useState<'team1' | 'team2' | 'viewer' | null>(null);
+    const [localRole, setLocalRole] = useState<string | null>(null);
 
     // Sync from props
     useEffect(() => {
@@ -1056,6 +1056,8 @@ const TeamMatchManager: React.FC<TournamentManagerProps> = ({
         
         const initialDrafts: TeamDraftTurn[] = Array.from({length: numTurns}, (_, i) => ({
             turnNumber: i + 1,
+            teamPairs: Object.fromEntries(groups.map(g => [g.id, Array.from({length: matchesPerTurn}, () => ['', ''] as [string, string])])),
+            teamLocks: Object.fromEntries(groups.map(g => [g.id, false])),
             team1Pairs: Array.from({length: matchesPerTurn}, () => ['', ''] as [string, string]),
             team2Pairs: Array.from({length: matchesPerTurn}, () => ['', ''] as [string, string]),
             team1Locked: false,
@@ -1142,20 +1144,52 @@ const TeamMatchManager: React.FC<TournamentManagerProps> = ({
         }
     };
 
-    const handleUpdateDraft = (turnIndex: number, teamNum: 1 | 2, matchIndex: number, pairIndex: 0 | 1, playerId: string) => {
+    const handleMoveMatchUp = (index: number) => {
+        if (index === 0) return;
+        const newSchedule = [...schedule];
+        const temp = newSchedule[index - 1];
+        newSchedule[index - 1] = newSchedule[index];
+        newSchedule[index] = temp;
+        setSchedule(newSchedule);
+        if (tournamentData) {
+            onUpdateTournament({ ...tournamentData, groupSchedule: newSchedule });
+        }
+    };
+
+    const handleMoveMatchDown = (index: number) => {
+        if (index === schedule.length - 1) return;
+        const newSchedule = [...schedule];
+        const temp = newSchedule[index + 1];
+        newSchedule[index + 1] = newSchedule[index];
+        newSchedule[index] = temp;
+        setSchedule(newSchedule);
+        if (tournamentData) {
+            onUpdateTournament({ ...tournamentData, groupSchedule: newSchedule });
+        }
+    };
+
+    const handleUpdateDraft = (turnIndex: number, groupId: string, matchIndex: number, pairIndex: 0 | 1, playerId: string) => {
         const newDrafts = [...drafts];
         const turn = { ...newDrafts[turnIndex] };
-        if (teamNum === 1) {
-            const newPairs = [...turn.team1Pairs];
+        
+        // Ensure teamPairs exists
+        if (!turn.teamPairs) turn.teamPairs = {};
+        if (!turn.teamPairs[groupId]) turn.teamPairs[groupId] = Array.from({length: tournamentData?.matchesPerTurn || 3}, () => ['', ''] as [string, string]);
+        
+        // Also support legacy format if groupId matches groups[0] or groups[1]
+        const isGroup1 = groups[0] && groupId === groups[0].id;
+        const isGroup2 = groups[1] && groupId === groups[1].id;
+
+        const newPairs = [...(turn.teamPairs[groupId] || (isGroup1 ? turn.team1Pairs : (isGroup2 ? turn.team2Pairs : [])))];
+        if (newPairs[matchIndex]) {
             newPairs[matchIndex] = [...newPairs[matchIndex]] as [string, string];
             newPairs[matchIndex][pairIndex] = playerId;
-            turn.team1Pairs = newPairs;
-        } else {
-            const newPairs = [...turn.team2Pairs];
-            newPairs[matchIndex] = [...newPairs[matchIndex]] as [string, string];
-            newPairs[matchIndex][pairIndex] = playerId;
-            turn.team2Pairs = newPairs;
+            turn.teamPairs[groupId] = newPairs;
+            
+            if (isGroup1) turn.team1Pairs = newPairs;
+            if (isGroup2) turn.team2Pairs = newPairs;
         }
+        
         newDrafts[turnIndex] = turn;
         setDrafts(newDrafts);
         if (tournamentData) {
@@ -1163,9 +1197,12 @@ const TeamMatchManager: React.FC<TournamentManagerProps> = ({
         }
     };
 
-    const handleLockDraft = (turnIndex: number, teamNum: 1 | 2) => {
+    const handleLockDraft = (turnIndex: number, groupId: string) => {
         const turn = drafts[turnIndex];
-        const pairs = teamNum === 1 ? turn.team1Pairs : turn.team2Pairs;
+        const isGroup1 = groups[0] && groupId === groups[0].id;
+        const isGroup2 = groups[1] && groupId === groups[1].id;
+        const pairs = turn.teamPairs?.[groupId] || (isGroup1 ? turn.team1Pairs : (isGroup2 ? turn.team2Pairs : [])) || [];
+        
         if (pairs.some(pair => (pair[0] && !pair[1]) || (!pair[0] && pair[1]))) {
             alert("Vui lòng chọn đầy đủ 2 người chơi hoặc để trống cả 2 cho trận đấu!");
             return;
@@ -1178,7 +1215,14 @@ const TeamMatchManager: React.FC<TournamentManagerProps> = ({
         }
         
         const newDrafts = [...drafts];
-        newDrafts[turnIndex] = { ...turn, [teamNum === 1 ? 'team1Locked' : 'team2Locked']: true };
+        const newTurn = { ...turn };
+        if (!newTurn.teamLocks) newTurn.teamLocks = {};
+        newTurn.teamLocks[groupId] = true;
+        
+        if (isGroup1) newTurn.team1Locked = true;
+        if (isGroup2) newTurn.team2Locked = true;
+        
+        newDrafts[turnIndex] = newTurn;
         setDrafts(newDrafts);
         if (tournamentData) {
             onUpdateTournament({ ...tournamentData, drafts: newDrafts });
@@ -1187,28 +1231,55 @@ const TeamMatchManager: React.FC<TournamentManagerProps> = ({
 
     const handleRevealDraft = (turnIndex: number) => {
         const turn = drafts[turnIndex];
-        if (!turn.team1Locked || !turn.team2Locked) return;
+        
+        // Check if ALL groups are locked
+        const isAllLocked = groups.every(g => {
+            if (turn.teamLocks?.[g.id]) return true;
+            if (groups[0] && g.id === groups[0].id) return turn.team1Locked;
+            if (groups[1] && g.id === groups[1].id) return turn.team2Locked;
+            return false;
+        });
+        
+        if (!isAllLocked) return;
 
         const newSchedule = [...schedule];
         const mPerTurn = tournamentData?.matchesPerTurn || 3;
+        
+        // Generate round-robin matches among all groups for this turn
         for (let i = 0; i < mPerTurn; i++) {
-            const t1p1 = players.find(p => String(p.id) === turn.team1Pairs[i][0])!;
-            const t1p2 = players.find(p => String(p.id) === turn.team1Pairs[i][1])!;
-            const t2p1 = players.find(p => String(p.id) === turn.team2Pairs[i][0])!;
-            const t2p2 = players.find(p => String(p.id) === turn.team2Pairs[i][1])!;
+            for (let gIdx1 = 0; gIdx1 < groups.length - 1; gIdx1++) {
+                for (let gIdx2 = gIdx1 + 1; gIdx2 < groups.length; gIdx2++) {
+                    const g1 = groups[gIdx1];
+                    const g2 = groups[gIdx2];
+                    
+                    const pairs1 = turn.teamPairs?.[g1.id] || (gIdx1 === 0 ? turn.team1Pairs : (gIdx1 === 1 ? turn.team2Pairs : []));
+                    const pairs2 = turn.teamPairs?.[g2.id] || (gIdx2 === 0 ? turn.team1Pairs : (gIdx2 === 1 ? turn.team2Pairs : []));
+                    
+                    const pair1 = pairs1?.[i];
+                    const pair2 = pairs2?.[i];
+                    
+                    if (!pair1 || !pair2) continue;
 
-            if(!t1p1 || !t1p2 || !t2p1 || !t2p2) continue; // safety
+                    const t1p1 = players.find(p => String(p.id) === pair1[0]);
+                    const t1p2 = players.find(p => String(p.id) === pair1[1]);
+                    const t2p1 = players.find(p => String(p.id) === pair2[0]);
+                    const t2p2 = players.find(p => String(p.id) === pair2[1]);
 
-            newSchedule.push({
-                id: `draft_${Date.now()}_t${turnIndex}_m${i}`,
-                group1Id: groups[0].id,
-                group2Id: groups[1].id,
-                pair1: [t1p1, t1p2],
-                pair2: [t2p1, t2p2],
-                score1: '',
-                score2: '',
-                isCompleted: false
-            });
+                    // Only create match if both pairs are fully populated
+                    if(t1p1 && t1p2 && t2p1 && t2p2) {
+                        newSchedule.push({
+                            id: `draft_${Date.now()}_t${turnIndex}_m${i}_g${g1.id}_g${g2.id}`,
+                            group1Id: g1.id,
+                            group2Id: g2.id,
+                            pair1: [t1p1, t1p2],
+                            pair2: [t2p1, t2p2],
+                            score1: '',
+                            score2: '',
+                            isCompleted: false
+                        });
+                    }
+                }
+            }
         }
 
         const newDrafts = [...drafts];
@@ -1229,6 +1300,16 @@ const TeamMatchManager: React.FC<TournamentManagerProps> = ({
     };
 
     // --- RENDER HELPERS ---
+    const getTeamColorInfo = (index: number) => {
+        const colors = [
+            { text: 'text-indigo-700', bg: 'bg-indigo-50', badge: 'bg-indigo-100', border: 'border-indigo-200' },
+            { text: 'text-emerald-700', bg: 'bg-emerald-50', badge: 'bg-emerald-100', border: 'border-emerald-200' },
+            { text: 'text-orange-700', bg: 'bg-orange-50', badge: 'bg-orange-100', border: 'border-orange-200' },
+            { text: 'text-rose-700', bg: 'bg-rose-50', badge: 'bg-rose-100', border: 'border-rose-200' },
+        ];
+        return colors[Math.max(0, index) % colors.length];
+    };
+
     const getGroupRating = (g: TeamGroup) => {
         if (g.players.length === 0) return 0;
         const sum = g.players.reduce((s, p) => s + (p.tournamentRating || 3.0), 0);
@@ -1384,11 +1465,11 @@ const TeamMatchManager: React.FC<TournamentManagerProps> = ({
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {groups.map((g) => (
+                    {groups.map((g, gIdx) => (
                         <Card key={g.id} title={
-                            <div className="flex justify-between items-center">
+                            <div className={`flex justify-between items-center ${getTeamColorInfo(gIdx).text}`}>
                                 <span>{g.name}</span>
-                                <span className="text-xs bg-slate-100 px-2 py-1 rounded text-slate-500">Ø Rating: {getGroupRating(g).toFixed(2)}</span>
+                                <span className={`text-xs ${getTeamColorInfo(gIdx).badge} px-2 py-1 rounded`}>Ø Rating: {getGroupRating(g).toFixed(2)}</span>
                             </div>
                         }>
                             <div className="p-2 space-y-1">
@@ -1476,20 +1557,20 @@ const TeamMatchManager: React.FC<TournamentManagerProps> = ({
     }
 
     // PLAY MODE
-    const g1 = groups[0];
-    const g2 = groups[1];
     
     // Calculate Score
-    let score1 = 0, score2 = 0;
+    const scores: Record<string, number> = {};
+    groups.forEach(g => scores[g.id] = 0);
     schedule.forEach(m => {
         if (m.isCompleted) {
-            if (Number(m.score1) > Number(m.score2)) {
-                score1 += m.hopeStarTeam1 ? 2 : 1;
-                if (m.hopeStarTeam2) score2 -= 1;
-            }
-            else if (Number(m.score2) > Number(m.score1)) {
-                score2 += m.hopeStarTeam2 ? 2 : 1;
-                if (m.hopeStarTeam1) score1 -= 1;
+            const s1 = Number(m.score1);
+            const s2 = Number(m.score2);
+            if (s1 > s2) {
+                scores[m.group1Id] = (scores[m.group1Id] || 0) + (m.hopeStarTeam1 ? 2 : 1);
+                if (m.hopeStarTeam2) scores[m.group2Id] = (scores[m.group2Id] || 0) - 1;
+            } else if (s2 > s1) {
+                scores[m.group2Id] = (scores[m.group2Id] || 0) + (m.hopeStarTeam2 ? 2 : 1);
+                if (m.hopeStarTeam1) scores[m.group1Id] = (scores[m.group1Id] || 0) - 1;
             }
         }
     });
@@ -1503,13 +1584,12 @@ const TeamMatchManager: React.FC<TournamentManagerProps> = ({
     });
     drafts?.forEach(turn => {
         if (turn.isRevealed) return;
-        turn.team1Pairs.forEach(pair => {
-            if(pair[0]) usageMap.set(pair[0], (usageMap.get(pair[0]) || 0) + 1);
-            if(pair[1]) usageMap.set(pair[1], (usageMap.get(pair[1]) || 0) + 1);
-        });
-        turn.team2Pairs.forEach(pair => {
-            if(pair[0]) usageMap.set(pair[0], (usageMap.get(pair[0]) || 0) + 1);
-            if(pair[1]) usageMap.set(pair[1], (usageMap.get(pair[1]) || 0) + 1);
+        groups.forEach((g, gIdx) => {
+            const tPairs = turn.teamPairs?.[g.id] || (gIdx === 0 ? turn.team1Pairs : (gIdx === 1 ? turn.team2Pairs : []));
+            tPairs?.forEach(pair => {
+                if(pair[0]) usageMap.set(pair[0], (usageMap.get(pair[0]) || 0) + 1);
+                if(pair[1]) usageMap.set(pair[1], (usageMap.get(pair[1]) || 0) + 1);
+            });
         });
     });
 
@@ -1517,21 +1597,18 @@ const TeamMatchManager: React.FC<TournamentManagerProps> = ({
     // const allGroupPlayers = groups.flatMap(g => g.players).sort((a,b) => a.name.localeCompare(b.name));
     
     // Filter players for manual match selection
-    const team1Players = groups[0]?.players ? [...groups[0].players].sort((a,b) => a.name.localeCompare(b.name)) : [];
-    const team2Players = groups[1]?.players ? [...groups[1].players].sort((a,b) => a.name.localeCompare(b.name)) : [];
-
+    
     const handleInitDraftsFallback = () => {
+        const matchesPerTurn = 3;
         const initialDrafts: TeamDraftTurn[] = Array.from({length: 3}, (_, i) => ({
             turnNumber: i + 1,
-            team1Pairs: Array.from({length: 3}, () => ['', ''] as [string, string]),
-            team2Pairs: Array.from({length: 3}, () => ['', ''] as [string, string]),
-            team1Locked: false,
-            team2Locked: false,
+            teamPairs: Object.fromEntries(groups.map(g => [g.id, Array.from({length: matchesPerTurn}, () => ['', ''] as [string, string])])),
+            teamLocks: Object.fromEntries(groups.map(g => [g.id, false])),
             isRevealed: false
         }));
         setDrafts(initialDrafts);
         if (tournamentData) {
-            onUpdateTournament({ ...tournamentData, drafts: initialDrafts, matchesPerTurn: 3, matchSetups: Array(9).fill('') });
+            onUpdateTournament({ ...tournamentData, drafts: initialDrafts, matchesPerTurn, matchSetups: Array(3 * matchesPerTurn).fill('') });
         }
     };
 
@@ -1551,16 +1628,16 @@ const TeamMatchManager: React.FC<TournamentManagerProps> = ({
             {/* Header / Scoreboard */}
             <div className="grid grid-cols-1 gap-4">
                 <Card className="bg-gradient-to-br from-slate-900 to-slate-800 text-white border-none shadow-xl">
-                    <div className="flex justify-between items-center h-full px-4 py-4">
-                        <div className="text-center flex-1">
-                            <div className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-1">{g1?.name}</div>
-                            <div className="text-5xl font-black text-white drop-shadow-lg">{score1}</div>
-                        </div>
-                        <div className="text-2xl font-black text-slate-600 px-4">VS</div>
-                        <div className="text-center flex-1">
-                            <div className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-1">{g2?.name}</div>
-                            <div className="text-5xl font-black text-white drop-shadow-lg">{score2}</div>
-                        </div>
+                    <div className="flex justify-between items-center h-full px-4 py-4 flex-wrap gap-4">
+                        {groups.map((g, i) => (
+                            <React.Fragment key={g.id}>
+                                {i > 0 && <div className="text-2xl font-black text-slate-600 px-4">VS</div>}
+                                <div className="text-center flex-1">
+                                    <div className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-1">{g.name}</div>
+                                    <div className="text-5xl font-black text-white drop-shadow-lg">{scores[g.id] || 0}</div>
+                                </div>
+                            </React.Fragment>
+                        ))}
                     </div>
                 </Card>
             </div>
@@ -1581,13 +1658,12 @@ const TeamMatchManager: React.FC<TournamentManagerProps> = ({
                 <Card title="Bắt Đầu Điền Đội Hình">
                     <div className="p-6 text-center space-y-6">
                         <p className="text-lg font-medium text-slate-600">Bạn là đội trưởng team nào?</p>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            <button onClick={() => setLocalRole('team1')} className="py-4 px-6 bg-indigo-50 border-2 border-indigo-200 text-indigo-700 font-black text-lg rounded-xl hover:bg-indigo-100 hover:border-indigo-400 transition-all shadow-sm">
-                                {g1?.name || 'Team 1'}
-                            </button>
-                            <button onClick={() => setLocalRole('team2')} className="py-4 px-6 bg-emerald-50 border-2 border-emerald-200 text-emerald-700 font-black text-lg rounded-xl hover:bg-emerald-100 hover:border-emerald-400 transition-all shadow-sm">
-                                {g2?.name || 'Team 2'}
-                            </button>
+                        <div className={`grid gap-4 ${groups.length === 2 ? 'grid-cols-1 sm:grid-cols-2' : groups.length === 3 ? 'grid-cols-1 sm:grid-cols-3' : 'grid-cols-2 sm:grid-cols-4'}`}>
+                            {groups.map((g, gIdx) => (
+                                <button key={g.id} onClick={() => setLocalRole(g.id)} className={`py-4 px-6 font-black text-lg rounded-xl hover:brightness-95 transition-all shadow-sm border-2 ${getTeamColorInfo(gIdx).bg} ${getTeamColorInfo(gIdx).border} ${getTeamColorInfo(gIdx).text}`}>
+                                    {g.name}
+                                </button>
+                            ))}
                         </div>
                         <button onClick={() => setLocalRole('viewer')} className="mt-4 text-sm font-bold text-slate-400 hover:text-slate-600 underline underline-offset-4">
                             Tôi là Khán giả / Ban tổ chức
@@ -1604,7 +1680,7 @@ const TeamMatchManager: React.FC<TournamentManagerProps> = ({
                         </h3>
                         <div className="flex items-center gap-3">
                             <span className="text-xs font-bold px-2 py-1 bg-slate-100 text-slate-600 rounded">
-                                Vai trò: {localRole === 'team1' ? g1?.name : localRole === 'team2' ? g2?.name : 'Khán giả'}
+                                Vai trò: {localRole === 'viewer' ? 'Khán giả' : (groups.find(g => g.id === localRole)?.name || (localRole === 'team1' ? groups[0]?.name : localRole === 'team2' ? groups[1]?.name : ''))}
                             </span>
                             <button onClick={() => setLocalRole(null)} className="text-xs font-bold text-indigo-600 hover:underline">
                                 Đổi vai trò
@@ -1622,100 +1698,64 @@ const TeamMatchManager: React.FC<TournamentManagerProps> = ({
                                 <Card key={tIdx} title={`Lượt ${turn.turnNumber}`} className={turn.isRevealed ? "border-green-200 bg-green-50/10" : isFutureTurn ? "opacity-50 pointer-events-none grayscale" : "border-indigo-200 shadow-md ring-1 ring-indigo-50"}>
                                     {!turn.isRevealed ? (
                                         <div className="space-y-4">
-                                            <div className="grid grid-cols-2 gap-4">
-                                                {/* Team 1 Section */}
-                                                <div className="space-y-2">
-                                                    <div className="text-xs font-bold text-slate-500 text-center border-b pb-1">
-                                                        {g1?.name} 
-                                                        {turn.team1Locked && <span className="ml-1 text-green-500">(Đã khóa)</span>}
-                                                    </div>
-                                                    {Array.from({length: tournamentData?.matchesPerTurn || 3}).map((_, mIdx) => {
-                                                        const matchSetupIndex = tIdx * (tournamentData?.matchesPerTurn || 3) + mIdx;
-                                                        const matchSetup = tournamentData?.matchSetups?.[matchSetupIndex];
-                                                        const reqPool0 = matchSetup?.[0];
-                                                        const reqPool1 = matchSetup?.[1];
-                                                        const t1Slot0 = reqPool0 ? team1Players.filter(p => p.pool === reqPool0) : team1Players;
-                                                        const t1Slot1 = reqPool1 ? team1Players.filter(p => p.pool === reqPool1) : team1Players;
-
-                                                        return (
-                                                        <div key={`t1_${mIdx}`} className="bg-slate-50 p-2 rounded border border-slate-100 flex flex-col gap-1">
-                                                            <div className="text-[10px] text-slate-400 font-bold mb-1 flex justify-between">
-                                                                <span>Trận {mIdx + 1}</span>
-                                                                {matchSetup && <span className="bg-indigo-100 text-indigo-700 px-1 rounded">{matchSetup}</span>}
+                                            <div className={`grid gap-4 ${groups.length === 2 ? 'grid-cols-2' : groups.length === 3 ? 'grid-cols-3' : 'grid-cols-4'}`}>
+                                                {groups.map((group, gIdx) => {
+                                                    const isGroup1 = gIdx === 0;
+                                                    const isGroup2 = gIdx === 1;
+                                                    const isLocked = turn.teamLocks?.[group.id] || (isGroup1 && turn.team1Locked) || (isGroup2 && turn.team2Locked);
+                                                    
+                                                    const tPairs = turn.teamPairs?.[group.id] || (isGroup1 ? turn.team1Pairs : (isGroup2 ? turn.team2Pairs : []));
+                                                    
+                                                    return (
+                                                        <div key={group.id} className="space-y-2">
+                                                            <div className={`text-xs font-bold ${getTeamColorInfo(gIdx).text} text-center border-b pb-1`}>
+                                                                {group.name} 
+                                                                {isLocked && <span className="ml-1 text-green-500">(Đã khóa)</span>}
                                                             </div>
-                                                            {turn.team1Locked || localRole === 'team2' || localRole === 'viewer' ? (
-                                                                <div className="text-xs font-bold text-slate-400 italic text-center py-2">
-                                                                    {turn.team1Locked ? 'Đã khóa chọn mồi' : 'Đang chọn...'}
+                                                            {Array.from({length: tournamentData?.matchesPerTurn || 3}).map((_, mIdx) => {
+                                                                const matchSetupIndex = tIdx * (tournamentData?.matchesPerTurn || 3) + mIdx;
+                                                                const matchSetup = tournamentData?.matchSetups?.[matchSetupIndex];
+                                                                const reqPool0 = matchSetup?.[0];
+                                                                const reqPool1 = matchSetup?.[1];
+                                                                const slot0Pool = reqPool0 ? group.players.filter(p => p.pool === reqPool0) : group.players;
+                                                                const slot1Pool = reqPool1 ? group.players.filter(p => p.pool === reqPool1) : group.players;
+
+                                                                return (
+                                                                <div key={`t_${group.id}_${mIdx}`} className="bg-slate-50 p-2 rounded border border-slate-100 flex flex-col gap-1">
+                                                                    <div className="text-[10px] text-slate-400 font-bold mb-1 flex justify-between">
+                                                                        <span>Trận {mIdx + 1}</span>
+                                                                        {matchSetup && <span className="bg-indigo-100 text-indigo-700 px-1 rounded">{matchSetup}</span>}
+                                                                    </div>
+                                                                    {isLocked || (localRole !== group.id && localRole !== 'viewer' && localRole !== `team${gIdx + 1}`) ? (
+                                                                        <div className="text-xs font-bold text-slate-400 italic text-center py-2">
+                                                                            {isLocked ? 'Đã khóa chọn mồi' : 'Đang chọn...'}
+                                                                        </div>
+                                                                    ) : (
+                                                                        <>
+                                                                        <select value={tPairs?.[mIdx]?.[0] || ''} onChange={(e) => handleUpdateDraft(tIdx, group.id, mIdx, 0, e.target.value)} className="w-full text-xs p-1 border rounded focus:ring focus:ring-indigo-200 bg-white">
+                                                                            <option value="">Chọn {reqPool0 ? `Pool ${reqPool0}` : ''}</option>
+                                                                            {slot0Pool.map(p => <option key={p.id} value={p.id}>{p.name} ({usageMap.get(String(p.id)) || 0} trận)</option>)}
+                                                                        </select>
+                                                                        <select value={tPairs?.[mIdx]?.[1] || ''} onChange={(e) => handleUpdateDraft(tIdx, group.id, mIdx, 1, e.target.value)} className="w-full text-xs p-1 border rounded focus:ring focus:ring-indigo-200 bg-white">
+                                                                            <option value="">Chọn {reqPool1 ? `Pool ${reqPool1}` : ''}</option>
+                                                                            {slot1Pool.map(p => <option key={p.id} value={p.id}>{p.name} ({usageMap.get(String(p.id)) || 0} trận)</option>)}
+                                                                        </select>
+                                                                        </>
+                                                                    )}
                                                                 </div>
-                                                            ) : (
-                                                                <>
-                                                                <select value={turn.team1Pairs?.[mIdx]?.[0] || ''} onChange={(e) => handleUpdateDraft(tIdx, 1, mIdx, 0, e.target.value)} className="w-full text-xs p-1 border rounded focus:ring focus:ring-indigo-200 bg-white">
-                                                                    <option value="">Chọn {reqPool0 ? `Pool ${reqPool0}` : ''}</option>
-                                                                    {t1Slot0.map(p => <option key={p.id} value={p.id}>{p.name} ({usageMap.get(String(p.id)) || 0} trận)</option>)}
-                                                                </select>
-                                                                <select value={turn.team1Pairs?.[mIdx]?.[1] || ''} onChange={(e) => handleUpdateDraft(tIdx, 1, mIdx, 1, e.target.value)} className="w-full text-xs p-1 border rounded focus:ring focus:ring-indigo-200 bg-white">
-                                                                    <option value="">Chọn {reqPool1 ? `Pool ${reqPool1}` : ''}</option>
-                                                                    {t1Slot1.map(p => <option key={p.id} value={p.id}>{p.name} ({usageMap.get(String(p.id)) || 0} trận)</option>)}
-                                                                </select>
-                                                                </>
+                                                            )})}
+                                                            {!isLocked && (localRole === group.id || localRole === `team${gIdx + 1}`) && isActiveTurn && (
+                                                                <button onClick={() => handleLockDraft(tIdx, group.id)} className="w-full py-2 bg-indigo-600 text-white text-xs font-bold rounded hover:bg-indigo-700 shadow flex justify-center items-center gap-1">
+                                                                    <CheckSquare className="w-3 h-3" /> Chốt Đội Hình
+                                                                </button>
                                                             )}
                                                         </div>
-                                                    )})}
-                                                    {!turn.team1Locked && localRole === 'team1' && isActiveTurn && (
-                                                        <button onClick={() => handleLockDraft(tIdx, 1)} className="w-full py-2 bg-indigo-600 text-white text-xs font-bold rounded hover:bg-indigo-700 shadow flex justify-center items-center gap-1">
-                                                            <CheckSquare className="w-3 h-3" /> Chốt Đội Hình
-                                                        </button>
-                                                    )}
-                                                </div>
-
-                                                {/* Team 2 Section */}
-                                                <div className="space-y-2">
-                                                    <div className="text-xs font-bold text-slate-500 text-center border-b pb-1">
-                                                        {g2?.name}
-                                                        {turn.team2Locked && <span className="ml-1 text-green-500">(Đã khóa)</span>}
-                                                    </div>
-                                                    {Array.from({length: tournamentData?.matchesPerTurn || 3}).map((_, mIdx) => {
-                                                        const matchSetupIndex = tIdx * (tournamentData?.matchesPerTurn || 3) + mIdx;
-                                                        const matchSetup = tournamentData?.matchSetups?.[matchSetupIndex];
-                                                        const reqPool0 = matchSetup?.[0];
-                                                        const reqPool1 = matchSetup?.[1];
-                                                        const t2Slot0 = reqPool0 ? team2Players.filter(p => p.pool === reqPool0) : team2Players;
-                                                        const t2Slot1 = reqPool1 ? team2Players.filter(p => p.pool === reqPool1) : team2Players;
-
-                                                        return (
-                                                        <div key={`t2_${mIdx}`} className="bg-slate-50 p-2 rounded border border-slate-100 flex flex-col gap-1">
-                                                            <div className="text-[10px] text-slate-400 font-bold mb-1 flex justify-between">
-                                                                <span>Trận {mIdx + 1}</span>
-                                                                {matchSetup && <span className="bg-indigo-100 text-indigo-700 px-1 rounded">{matchSetup}</span>}
-                                                            </div>
-                                                            {turn.team2Locked || localRole === 'team1' || localRole === 'viewer' ? (
-                                                                <div className="text-xs font-bold text-slate-400 italic text-center py-2">
-                                                                    {turn.team2Locked ? 'Đã khóa chọn mồi' : 'Đang chọn...'}
-                                                                </div>
-                                                            ) : (
-                                                                <>
-                                                                <select value={turn.team2Pairs?.[mIdx]?.[0] || ''} onChange={(e) => handleUpdateDraft(tIdx, 2, mIdx, 0, e.target.value)} className="w-full text-xs p-1 border rounded focus:ring focus:ring-emerald-200 bg-white">
-                                                                    <option value="">Chọn {reqPool0 ? `Pool ${reqPool0}` : ''}</option>
-                                                                    {t2Slot0.map(p => <option key={p.id} value={p.id}>{p.name} ({usageMap.get(String(p.id)) || 0} trận)</option>)}
-                                                                </select>
-                                                                <select value={turn.team2Pairs?.[mIdx]?.[1] || ''} onChange={(e) => handleUpdateDraft(tIdx, 2, mIdx, 1, e.target.value)} className="w-full text-xs p-1 border rounded focus:ring focus:ring-emerald-200 bg-white">
-                                                                    <option value="">Chọn {reqPool1 ? `Pool ${reqPool1}` : ''}</option>
-                                                                    {t2Slot1.map(p => <option key={p.id} value={p.id}>{p.name} ({usageMap.get(String(p.id)) || 0} trận)</option>)}
-                                                                </select>
-                                                                </>
-                                                            )}
-                                                        </div>
-                                                    )})}
-                                                    {!turn.team2Locked && localRole === 'team2' && isActiveTurn && (
-                                                        <button onClick={() => handleLockDraft(tIdx, 2)} className="w-full py-2 bg-emerald-600 text-white text-xs font-bold rounded hover:bg-emerald-700 shadow flex justify-center items-center gap-1">
-                                                            <CheckSquare className="w-3 h-3" /> Chốt Đội Hình
-                                                        </button>
-                                                    )}
-                                                </div>
+                                                    );
+                                                })}
                                             </div>
 
                                             {/* Reveal Button */}
-                                            {turn.team1Locked && turn.team2Locked && (
+                                            {groups.every(g => turn.teamLocks?.[g.id] || (groups[0] && g.id === groups[0].id && turn.team1Locked) || (groups[1] && g.id === groups[1].id && turn.team2Locked)) && (
                                                 <div className="pt-2 border-t mt-2">
                                                     <button onClick={() => handleRevealDraft(tIdx)} className="w-full py-3 bg-amber-500 text-white text-sm font-black rounded-lg hover:bg-amber-600 shadow-md animate-pulse flex items-center justify-center gap-2">
                                                         <Sparkles className="w-5 h-5 text-amber-100" /> Bật Mí Đội Hình & Đưa Vào Lịch
@@ -1757,23 +1797,52 @@ const TeamMatchManager: React.FC<TournamentManagerProps> = ({
                     {schedule.map((m, idx) => (
                         <div key={m.id} className={`bg-white p-3 rounded-lg border transition-all relative overflow-hidden ${m.isCompleted ? 'border-green-200 bg-green-50/30' : 'border-slate-200 hover:border-indigo-300'}`}>
                             
-                            <div className="flex justify-between items-center mb-2">
+                            <div className="flex justify-between items-center mb-2 border-b pb-2">
                                 <div className="flex gap-2 items-center">
-                                    <span className="text-[10px] font-bold text-slate-400">#{idx+1}</span>
+                                    <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">#{idx+1}</span>
                                     {tournamentData?.matchSetups?.[idx] && (
                                         <span className="text-[10px] font-bold bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded">
-                                            {tournamentData.matchSetups[idx]}
+                                            Pool: {tournamentData.matchSetups[idx]}
                                         </span>
                                     )}
+                                    <div className="flex items-center gap-1">
+                                        <span className={`text-[10px] font-bold ${getTeamColorInfo(groups.findIndex(g => g.id === m.group1Id)).text} ${getTeamColorInfo(groups.findIndex(g => g.id === m.group1Id)).bg} px-1.5 py-0.5 rounded border ${getTeamColorInfo(groups.findIndex(g => g.id === m.group1Id)).border}`}>
+                                            {groups.find(g => g.id === m.group1Id)?.name || 'Team 1'}
+                                        </span>
+                                        <span className="text-[10px] font-bold text-slate-400">vs</span>
+                                        <span className={`text-[10px] font-bold ${getTeamColorInfo(groups.findIndex(g => g.id === m.group2Id)).text} ${getTeamColorInfo(groups.findIndex(g => g.id === m.group2Id)).bg} px-1.5 py-0.5 rounded border ${getTeamColorInfo(groups.findIndex(g => g.id === m.group2Id)).border}`}>
+                                            {groups.find(g => g.id === m.group2Id)?.name || 'Team 2'}
+                                        </span>
+                                    </div>
                                 </div>
-                                {m.isCompleted && <span className="text-[10px] font-bold text-green-600 flex items-center gap-1"><CheckCircle2 className="w-3 h-3" /> Đã xong</span>}
+                                <div className="flex items-center gap-2">
+                                    <div className="flex items-center">
+                                        <button 
+                                            onClick={() => handleMoveMatchUp(idx)} 
+                                            disabled={idx === 0}
+                                            className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-slate-400 transition-colors"
+                                            title="Đẩy trận lên trước"
+                                        >
+                                            <ChevronUp className="w-4 h-4" />
+                                        </button>
+                                        <button 
+                                            onClick={() => handleMoveMatchDown(idx)} 
+                                            disabled={idx === schedule.length - 1}
+                                            className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-slate-400 transition-colors"
+                                            title="Đẩy trận xuống sau"
+                                        >
+                                            <ChevronDown className="w-4 h-4" />
+                                        </button>
+                                    </div>
+                                    {m.isCompleted && <span className="text-[10px] font-bold text-green-600 flex items-center gap-1"><CheckCircle2 className="w-3 h-3" /> Đã xong</span>}
+                                </div>
                             </div>
                             
                             <div className="flex items-center justify-between gap-2">
                                 {/* Team 1 */}
                                 <div className="flex-1 text-right">
-                                    <div className="text-xs font-bold text-indigo-700 truncate">{m.pair1[0].name}</div>
-                                    <div className="text-xs font-bold text-indigo-700 truncate">{m.pair1[1].name}</div>
+                                    <div className={`text-xs font-bold ${getTeamColorInfo(groups.findIndex(g => g.id === m.group1Id)).text} truncate`}>{m.pair1[0].name}</div>
+                                    <div className={`text-xs font-bold ${getTeamColorInfo(groups.findIndex(g => g.id === m.group1Id)).text} truncate`}>{m.pair1[1].name}</div>
                                     <div className="text-[10px] text-slate-400 mt-0.5 flex items-center justify-end gap-1">
                                         <span>{(m.pair1[0].tournamentRating||3)+(m.pair1[1].tournamentRating||3)}</span>
                                         {!m.isCompleted ? (
@@ -1809,8 +1878,8 @@ const TeamMatchManager: React.FC<TournamentManagerProps> = ({
 
                                 {/* Team 2 */}
                                 <div className="flex-1 text-left">
-                                    <div className="text-xs font-bold text-orange-700 truncate">{m.pair2[0].name}</div>
-                                    <div className="text-xs font-bold text-orange-700 truncate">{m.pair2[1].name}</div>
+                                    <div className={`text-xs font-bold ${getTeamColorInfo(groups.findIndex(g => g.id === m.group2Id)).text} truncate`}>{m.pair2[0].name}</div>
+                                    <div className={`text-xs font-bold ${getTeamColorInfo(groups.findIndex(g => g.id === m.group2Id)).text} truncate`}>{m.pair2[1].name}</div>
                                     <div className="text-[10px] text-slate-400 mt-0.5 flex items-center justify-start gap-1">
                                         {!m.isCompleted ? (
                                             <button onClick={(e) => { e.stopPropagation(); toggleHopeStar(m.id, 2); }} className={`p-0.5 rounded ${m.hopeStarTeam2 ? 'text-yellow-500 bg-yellow-50' : 'text-slate-300 hover:text-yellow-500'}`} title="Ngôi sao hy vọng Đội 2">
@@ -1852,12 +1921,12 @@ const TeamMatchManager: React.FC<TournamentManagerProps> = ({
             </div>
 
             {/* Stats */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {[groups[0], groups[1]].map((group, gIdx) => (
-                    <Card key={group?.id || gIdx} title={`Thống Kê: ${group?.name || 'Team ' + (gIdx+1)}`}>
+            <div className={`grid grid-cols-1 md:grid-cols-2 lg:grid-cols-${Math.min(groups.length, 4)} gap-4`}>
+                {groups.map((group, gIdx) => (
+                    <Card key={group.id || gIdx} title={<span className={getTeamColorInfo(gIdx).text}>Thống Kê: {group.name || 'Team ' + (gIdx+1)}</span>}>
                         <div className="overflow-x-auto">
                             <table className="w-full text-xs text-left">
-                                <thead className="bg-slate-50 text-slate-500 font-bold uppercase">
+                                <thead className={`${getTeamColorInfo(gIdx).badge} ${getTeamColorInfo(gIdx).text} font-bold uppercase`}>
                                     <tr>
                                         <th className="p-2">Tên</th>
                                         <th className="p-2 text-center">Rating</th>
@@ -1871,7 +1940,7 @@ const TeamMatchManager: React.FC<TournamentManagerProps> = ({
                                         <tr key={p.id} className="hover:bg-slate-50">
                                             <td className="p-2 font-bold text-slate-700">{p.name}</td>
                                             <td className="p-2 text-center font-mono text-slate-500">{(p.tournamentRating || 3.0).toFixed(2)}</td>
-                                            <td className="p-2 text-center font-bold text-indigo-600">{usageMap.get(String(p.id)) || 0}</td>
+                                            <td className={`p-2 text-center font-bold ${getTeamColorInfo(gIdx).text}`}>{usageMap.get(String(p.id)) || 0}</td>
                                         </tr>
                                     ))}
                                 </tbody>

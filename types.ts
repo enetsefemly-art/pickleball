@@ -99,10 +99,12 @@ export interface TeamMatchScheduleItem {
 
 export interface TeamDraftTurn {
     turnNumber: number;
-    team1Pairs: [string, string][];
-    team2Pairs: [string, string][];
-    team1Locked: boolean;
-    team2Locked: boolean;
+    team1Pairs?: [string, string][]; // Legacy
+    team2Pairs?: [string, string][]; // Legacy
+    team1Locked?: boolean;           // Legacy
+    team2Locked?: boolean;           // Legacy
+    teamPairs?: Record<string, [string, string][]>; // groupId -> array of pairs
+    teamLocks?: Record<string, boolean>; // groupId -> isLocked
     isRevealed: boolean;
 }
 
