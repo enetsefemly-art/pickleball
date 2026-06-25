@@ -987,6 +987,31 @@ const TeamMatchManager: React.FC<TournamentManagerProps> = ({
         return list.sort((a, b) => a.name.localeCompare(b.name));
     }, [players, showAllPlayers]);
 
+    const availablePools = useMemo(() => {
+        const pools = new Set<string>();
+        activePlayers.forEach(p => {
+            if (p.pool) pools.add(p.pool.toUpperCase());
+        });
+        if (pools.size === 0) {
+            pools.add('A');
+            pools.add('B');
+            pools.add('C');
+            pools.add('D');
+        }
+        return Array.from(pools).sort();
+    }, [activePlayers]);
+
+    // Combinations of pools (e.g. AA, BB, CC, AB, AC, BC)
+    const poolCombinations = useMemo(() => {
+        const combos = new Set<string>();
+        for (let i = 0; i < availablePools.length; i++) {
+            for (let j = i; j < availablePools.length; j++) {
+                combos.add(`${availablePools[i]}${availablePools[j]}`);
+            }
+        }
+        return Array.from(combos).sort();
+    }, [availablePools]);
+
     // --- ACTIONS ---
 
     const handleSetPlayerPool = (groupId: string, playerId: string, pool: string) => {
@@ -1613,18 +1638,31 @@ const TeamMatchManager: React.FC<TournamentManagerProps> = ({
                                                             ))}
                                                         </select>
                                                     </div>
-                                                    <input 
-                                                        type="text" 
-                                                        placeholder="Pool (VD: AB)" 
-                                                        value={matchSetups[index] || ''}
-                                                        onChange={(e) => {
-                                                            const newSetups = [...matchSetups];
-                                                            newSetups[index] = e.target.value.toUpperCase().replace(/[^A-Z]/g, '');
-                                                            setMatchSetups(newSetups);
-                                                        }}
-                                                        maxLength={10}
-                                                        className="p-1.5 border rounded text-xs font-bold text-center uppercase"
-                                                    />
+                                                    <div className="flex flex-wrap gap-1 justify-center mt-1">
+                                                        <button 
+                                                            onClick={() => {
+                                                                const newSetups = [...matchSetups];
+                                                                newSetups[index] = '';
+                                                                setMatchSetups(newSetups);
+                                                            }}
+                                                            className={`px-2 py-1 text-[10px] font-bold rounded border ${!matchSetups[index] ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100'}`}
+                                                        >
+                                                            Tự do
+                                                        </button>
+                                                        {poolCombinations.map(combo => (
+                                                            <button
+                                                                key={combo}
+                                                                onClick={() => {
+                                                                    const newSetups = [...matchSetups];
+                                                                    newSetups[index] = combo;
+                                                                    setMatchSetups(newSetups);
+                                                                }}
+                                                                className={`px-2 py-1 text-[10px] font-bold rounded border ${matchSetups[index] === combo ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100'}`}
+                                                            >
+                                                                {combo}
+                                                            </button>
+                                                        ))}
+                                                    </div>
                                                 </div>
                                             );
                                         })}
