@@ -108,7 +108,8 @@ export const subscribeToConfig = (callback: (tournament: TournamentState | null,
                     groupSchedule: typeof data.groupSchedule === 'string' ? JSON.parse(data.groupSchedule) : data.groupSchedule,
                     drafts: typeof data.drafts === 'string' ? JSON.parse(data.drafts) : data.drafts,
                     matchesPerTurn: data.matchesPerTurn || 3,
-                    matchSetups: typeof data.matchSetups === 'string' ? JSON.parse(data.matchSetups) : data.matchSetups
+                    matchSetups: typeof data.matchSetups === 'string' ? JSON.parse(data.matchSetups) : data.matchSetups,
+                    matchGroupSetups: typeof data.matchGroupSetups === 'string' ? JSON.parse(data.matchGroupSetups) : data.matchGroupSetups
                 };
             }
             if (doc.id === 'app') {
@@ -213,7 +214,8 @@ export const updateTournamentInCloud = async (tournament: TournamentState | null
                 groupSchedule: tournament.groupSchedule ? JSON.stringify(tournament.groupSchedule) : null,
                 drafts: tournament.drafts ? JSON.stringify(tournament.drafts) : null,
                 matchesPerTurn: tournament.matchesPerTurn || 3,
-                matchSetups: tournament.matchSetups ? JSON.stringify(tournament.matchSetups) : null
+                matchSetups: tournament.matchSetups ? JSON.stringify(tournament.matchSetups) : null,
+                matchGroupSetups: tournament.matchGroupSetups ? JSON.stringify(tournament.matchGroupSetups) : null
             };
             await setDoc(doc(db, 'config', 'tournament'), cleanData(tDoc));
         } else {

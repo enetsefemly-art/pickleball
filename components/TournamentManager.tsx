@@ -968,6 +968,9 @@ const TeamMatchManager: React.FC<TournamentManagerProps> = ({
             setGroups(tournamentData.groups || []);
             setSchedule(tournamentData.groupSchedule || []);
             setDrafts(tournamentData.drafts || []);
+            if (tournamentData.matchSetups) setMatchSetups(tournamentData.matchSetups);
+            if (tournamentData.matchGroupSetups) setMatchGroupSetups(tournamentData.matchGroupSetups);
+            if (tournamentData.matchesPerTurn) setMatchesPerTurn(tournamentData.matchesPerTurn);
         } else if (!tournamentData?.isActive) {
             setStep('setup');
             // Clear local state when tournament ends or is inactive
@@ -1276,74 +1279,36 @@ const TeamMatchManager: React.FC<TournamentManagerProps> = ({
             const index = turnIndex * mPerTurn + i;
             const groupSetup = tournamentData?.matchGroupSetups?.[index];
 
-            if (groupSetup && groupSetup[0] !== '' && groupSetup[1] !== '') {
-                const gIdx1 = Number(groupSetup[0]);
-                const gIdx2 = Number(groupSetup[1]);
+            const gIdx1 = groupSetup?.[0] !== undefined && groupSetup?.[0] !== '' ? Number(groupSetup[0]) : 0;
+            const gIdx2 = groupSetup?.[1] !== undefined && groupSetup?.[1] !== '' ? Number(groupSetup[1]) : 1;
+            
+            if (gIdx1 >= 0 && gIdx1 < groups.length && gIdx2 >= 0 && gIdx2 < groups.length && gIdx1 !== gIdx2) {
+                const g1 = groups[gIdx1];
+                const g2 = groups[gIdx2];
                 
-                if (gIdx1 >= 0 && gIdx1 < groups.length && gIdx2 >= 0 && gIdx2 < groups.length && gIdx1 !== gIdx2) {
-                    const g1 = groups[gIdx1];
-                    const g2 = groups[gIdx2];
-                    
-                    const pairs1 = turn.teamPairs?.[g1.id] || (gIdx1 === 0 ? turn.team1Pairs : (gIdx1 === 1 ? turn.team2Pairs : []));
-                    const pairs2 = turn.teamPairs?.[g2.id] || (gIdx2 === 0 ? turn.team1Pairs : (gIdx2 === 1 ? turn.team2Pairs : []));
-                    
-                    const pair1 = pairs1?.[i];
-                    const pair2 = pairs2?.[i];
-                    
-                    if (pair1 && pair2) {
-                        const t1p1 = players.find(p => String(p.id) === pair1[0]);
-                        const t1p2 = players.find(p => String(p.id) === pair1[1]);
-                        const t2p1 = players.find(p => String(p.id) === pair2[0]);
-                        const t2p2 = players.find(p => String(p.id) === pair2[1]);
-
-                        if(t1p1 && t1p2 && t2p1 && t2p2) {
-                            newSchedule.push({
-                                id: `draft_${Date.now()}_t${turnIndex}_m${i}_g${g1.id}_g${g2.id}`,
-                                group1Id: g1.id,
-                                group2Id: g2.id,
-                                pair1: [t1p1, t1p2],
-                                pair2: [t2p1, t2p2],
-                                score1: '',
-                                score2: '',
-                                isCompleted: false
-                            });
-                        }
-                    }
-                }
-            } else {
-                // Default to Team 1 vs Team 2 if not explicitly set
-                const gIdx1 = 0;
-                const gIdx2 = 1;
+                const pairs1 = turn.teamPairs?.[g1.id] || (gIdx1 === 0 ? turn.team1Pairs : (gIdx1 === 1 ? turn.team2Pairs : []));
+                const pairs2 = turn.teamPairs?.[g2.id] || (gIdx2 === 0 ? turn.team1Pairs : (gIdx2 === 1 ? turn.team2Pairs : []));
                 
-                if (groups.length >= 2) {
-                    const g1 = groups[gIdx1];
-                    const g2 = groups[gIdx2];
-                    
-                    const pairs1 = turn.teamPairs?.[g1.id] || turn.team1Pairs;
-                    const pairs2 = turn.teamPairs?.[g2.id] || turn.team2Pairs;
-                    
-                    const pair1 = pairs1?.[i];
-                    const pair2 = pairs2?.[i];
-                    
-                    if (pair1 && pair2) {
-                        const t1p1 = players.find(p => String(p.id) === pair1[0]);
-                        const t1p2 = players.find(p => String(p.id) === pair1[1]);
-                        const t2p1 = players.find(p => String(p.id) === pair2[0]);
-                        const t2p2 = players.find(p => String(p.id) === pair2[1]);
+                const pair1 = pairs1?.[i];
+                const pair2 = pairs2?.[i];
+                
+                if (pair1 && pair2) {
+                    const t1p1 = players.find(p => String(p.id) === pair1[0]);
+                    const t1p2 = players.find(p => String(p.id) === pair1[1]);
+                    const t2p1 = players.find(p => String(p.id) === pair2[0]);
+                    const t2p2 = players.find(p => String(p.id) === pair2[1]);
 
-                        // Only create match if both pairs are fully populated
-                        if(t1p1 && t1p2 && t2p1 && t2p2) {
-                            newSchedule.push({
-                                id: `draft_${Date.now()}_t${turnIndex}_m${i}_g${g1.id}_g${g2.id}`,
-                                group1Id: g1.id,
-                                group2Id: g2.id,
-                                pair1: [t1p1, t1p2],
-                                pair2: [t2p1, t2p2],
-                                score1: '',
-                                score2: '',
-                                isCompleted: false
-                            });
-                        }
+                    if(t1p1 && t1p2 && t2p1 && t2p2) {
+                        newSchedule.push({
+                            id: `draft_${Date.now()}_t${turnIndex}_m${i}_g${g1.id}_g${g2.id}`,
+                            group1Id: g1.id,
+                            group2Id: g2.id,
+                            pair1: [t1p1, t1p2],
+                            pair2: [t2p1, t2p2],
+                            score1: '',
+                            score2: '',
+                            isCompleted: false
+                        });
                     }
                 }
             }
@@ -1838,6 +1803,14 @@ const TeamMatchManager: React.FC<TournamentManagerProps> = ({
                                                             {Array.from({length: tournamentData?.matchesPerTurn || 3}).map((_, mIdx) => {
                                                                 const matchSetupIndex = tIdx * (tournamentData?.matchesPerTurn || 3) + mIdx;
                                                                 const matchSetup = tournamentData?.matchSetups?.[matchSetupIndex];
+                                                                const matchGroupSetup = tournamentData?.matchGroupSetups?.[matchSetupIndex];
+                                                                
+                                                                const g1 = matchGroupSetup?.[0] !== undefined && matchGroupSetup?.[0] !== '' ? Number(matchGroupSetup[0]) : 0;
+                                                                const g2 = matchGroupSetup?.[1] !== undefined && matchGroupSetup?.[1] !== '' ? Number(matchGroupSetup[1]) : 1;
+                                                                const isGroupPlaying = gIdx === g1 || gIdx === g2;
+                                                                
+                                                                if (!isGroupPlaying) return null;
+
                                                                 const reqPool0 = matchSetup?.[0];
                                                                 const reqPool1 = matchSetup?.[1];
                                                                 const slot0Pool = reqPool0 ? group.players.filter(p => p.pool === reqPool0) : group.players;
