@@ -1286,20 +1286,21 @@ const TeamMatchManager: React.FC<TournamentManagerProps> = ({
                     }
                 }
             } else {
-                // Generate round-robin matches among all groups for this turn
-                for (let gIdx1 = 0; gIdx1 < groups.length - 1; gIdx1++) {
-                    for (let gIdx2 = gIdx1 + 1; gIdx2 < groups.length; gIdx2++) {
-                        const g1 = groups[gIdx1];
-                        const g2 = groups[gIdx2];
-                        
-                        const pairs1 = turn.teamPairs?.[g1.id] || (gIdx1 === 0 ? turn.team1Pairs : (gIdx1 === 1 ? turn.team2Pairs : []));
-                        const pairs2 = turn.teamPairs?.[g2.id] || (gIdx2 === 0 ? turn.team1Pairs : (gIdx2 === 1 ? turn.team2Pairs : []));
-                        
-                        const pair1 = pairs1?.[i];
-                        const pair2 = pairs2?.[i];
-                        
-                        if (!pair1 || !pair2) continue;
-
+                // Default to Team 1 vs Team 2 if not explicitly set
+                const gIdx1 = 0;
+                const gIdx2 = 1;
+                
+                if (groups.length >= 2) {
+                    const g1 = groups[gIdx1];
+                    const g2 = groups[gIdx2];
+                    
+                    const pairs1 = turn.teamPairs?.[g1.id] || turn.team1Pairs;
+                    const pairs2 = turn.teamPairs?.[g2.id] || turn.team2Pairs;
+                    
+                    const pair1 = pairs1?.[i];
+                    const pair2 = pairs2?.[i];
+                    
+                    if (pair1 && pair2) {
                         const t1p1 = players.find(p => String(p.id) === pair1[0]);
                         const t1p2 = players.find(p => String(p.id) === pair1[1]);
                         const t2p1 = players.find(p => String(p.id) === pair2[0]);
