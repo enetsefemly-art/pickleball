@@ -1574,30 +1574,28 @@ const TeamMatchManager: React.FC<TournamentManagerProps> = ({
                                                     <label className="text-xs font-bold text-slate-600 text-center border-b pb-1">Trận {mIdx + 1}</label>
                                                     <div className="flex items-center gap-1 justify-center">
                                                         <select 
-                                                            value={matchGroupSetups[index]?.[0] || ''}
+                                                            value={matchGroupSetups[index]?.[0] !== undefined && matchGroupSetups[index]?.[0] !== '' ? matchGroupSetups[index][0] : '0'}
                                                             onChange={(e) => {
                                                                 const newGroupSetups = [...matchGroupSetups];
-                                                                newGroupSetups[index] = [e.target.value, matchGroupSetups[index]?.[1] || ''];
+                                                                newGroupSetups[index] = [e.target.value, matchGroupSetups[index]?.[1] !== undefined && matchGroupSetups[index]?.[1] !== '' ? matchGroupSetups[index][1] : '1'];
                                                                 setMatchGroupSetups(newGroupSetups);
                                                             }}
                                                             className="text-xs p-1 rounded border bg-slate-50 font-bold"
                                                         >
-                                                            <option value="">Team 1</option>
                                                             {Array.from({length: numTeams}).map((_, i) => (
                                                                 <option key={i} value={i}>T{i+1}</option>
                                                             ))}
                                                         </select>
                                                         <span className="text-[10px] text-slate-400 font-bold">vs</span>
                                                         <select 
-                                                            value={matchGroupSetups[index]?.[1] || ''}
+                                                            value={matchGroupSetups[index]?.[1] !== undefined && matchGroupSetups[index]?.[1] !== '' ? matchGroupSetups[index][1] : '1'}
                                                             onChange={(e) => {
                                                                 const newGroupSetups = [...matchGroupSetups];
-                                                                newGroupSetups[index] = [matchGroupSetups[index]?.[0] || '', e.target.value];
+                                                                newGroupSetups[index] = [matchGroupSetups[index]?.[0] !== undefined && matchGroupSetups[index]?.[0] !== '' ? matchGroupSetups[index][0] : '0', e.target.value];
                                                                 setMatchGroupSetups(newGroupSetups);
                                                             }}
                                                             className="text-xs p-1 rounded border bg-slate-50 font-bold"
                                                         >
-                                                            <option value="">Team 2</option>
                                                             {Array.from({length: numTeams}).map((_, i) => (
                                                                 <option key={i} value={i}>T{i+1}</option>
                                                             ))}
@@ -1696,7 +1694,7 @@ const TeamMatchManager: React.FC<TournamentManagerProps> = ({
         }));
         setDrafts(initialDrafts);
         if (tournamentData) {
-            onUpdateTournament({ ...tournamentData, drafts: initialDrafts, matchesPerTurn, matchSetups: Array(3 * matchesPerTurn).fill('') });
+            onUpdateTournament({ ...tournamentData, drafts: initialDrafts, matchesPerTurn, matchSetups: Array(3 * matchesPerTurn).fill(''), matchGroupSetups: Array(3 * matchesPerTurn).fill(['', '']) });
         }
     };
 
