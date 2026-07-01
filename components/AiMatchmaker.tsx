@@ -222,6 +222,14 @@ export const AiMatchmaker: React.FC<AiMatchmakerProps> = ({ players, matches }) 
 
   const updateTargetOpponent = (index: number, val: string) => {
       const newIds = [...targetOpponentIds];
+      const otherIndex = index === 0 ? 1 : 0;
+      
+      if (val === myId) {
+          setMyId(newIds[index]);
+      } else if (val !== '' && val === newIds[otherIndex]) {
+          newIds[otherIndex] = newIds[index];
+      }
+      
       newIds[index] = val;
       setTargetOpponentIds(newIds);
   };
@@ -288,11 +296,15 @@ export const AiMatchmaker: React.FC<AiMatchmakerProps> = ({ players, matches }) 
                                     <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Thành viên 1</label>
                                     <select 
                                         value={p1Id}
-                                        onChange={(e) => setP1Id(e.target.value)}
+                                        onChange={(e) => {
+                                            const val = e.target.value;
+                                            if (val === p2Id) setP2Id(p1Id);
+                                            setP1Id(val);
+                                        }}
                                         className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-800 focus:ring-2 focus:ring-violet-500 focus:border-violet-500 outline-none transition-all"
                                     >
                                         <option value="">-- Chọn người chơi --</option>
-                                        {sortedPlayers.filter(p => String(p.id) !== p2Id).map(p => (
+                                        {sortedPlayers.map(p => (
                                             <option key={p.id} value={String(p.id)}>{p.name} (Rate: {(p.tournamentRating || p.initialPoints || 0).toFixed(1)})</option>
                                         ))}
                                     </select>
@@ -311,11 +323,15 @@ export const AiMatchmaker: React.FC<AiMatchmakerProps> = ({ players, matches }) 
                                     <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Thành viên 2</label>
                                     <select 
                                         value={p2Id}
-                                        onChange={(e) => setP2Id(e.target.value)}
+                                        onChange={(e) => {
+                                            const val = e.target.value;
+                                            if (val === p1Id) setP1Id(p2Id);
+                                            setP2Id(val);
+                                        }}
                                         className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-800 focus:ring-2 focus:ring-violet-500 focus:border-violet-500 outline-none transition-all"
                                     >
                                         <option value="">-- Chọn người chơi --</option>
-                                        {sortedPlayers.filter(p => String(p.id) !== p1Id).map(p => (
+                                        {sortedPlayers.map(p => (
                                             <option key={p.id} value={String(p.id)}>{p.name} (Rate: {(p.tournamentRating || p.initialPoints || 0).toFixed(1)})</option>
                                         ))}
                                     </select>
@@ -352,7 +368,12 @@ export const AiMatchmaker: React.FC<AiMatchmakerProps> = ({ players, matches }) 
                                     <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Bạn là ai?</label>
                                     <select 
                                         value={myId}
-                                        onChange={(e) => setMyId(e.target.value)}
+                                        onChange={(e) => {
+                                            const val = e.target.value;
+                                            if (val === targetOpponentIds[0]) updateTargetOpponent(0, myId);
+                                            else if (val === targetOpponentIds[1]) updateTargetOpponent(1, myId);
+                                            setMyId(val);
+                                        }}
                                         className="w-full p-3 bg-white border border-indigo-200 rounded-xl font-bold text-slate-800 focus:ring-2 focus:ring-indigo-500 outline-none transition-all shadow-sm"
                                     >
                                         <option value="">-- Chọn tên bạn --</option>
@@ -379,7 +400,7 @@ export const AiMatchmaker: React.FC<AiMatchmakerProps> = ({ players, matches }) 
                                         className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-800 focus:ring-2 focus:ring-red-500 outline-none transition-all"
                                     >
                                         <option value="">-- Chọn đối thủ --</option>
-                                        {sortedPlayers.filter(p => String(p.id) !== myId && String(p.id) !== targetOpponentIds[1]).map(p => (
+                                        {sortedPlayers.map(p => (
                                             <option key={p.id} value={String(p.id)}>{p.name}</option>
                                         ))}
                                     </select>
@@ -393,7 +414,7 @@ export const AiMatchmaker: React.FC<AiMatchmakerProps> = ({ players, matches }) 
                                         className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-800 focus:ring-2 focus:ring-red-500 outline-none transition-all"
                                     >
                                         <option value="">-- Để trống nếu muốn tìm 2 người --</option>
-                                        {sortedPlayers.filter(p => String(p.id) !== myId && String(p.id) !== targetOpponentIds[0]).map(p => (
+                                        {sortedPlayers.map(p => (
                                             <option key={p.id} value={String(p.id)}>{p.name}</option>
                                         ))}
                                     </select>

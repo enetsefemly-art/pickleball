@@ -38,14 +38,12 @@ const PlayerSelect = ({
     value, 
     onChange, 
     players, 
-    exclude, 
     label, 
     compact = false 
 }: { 
     value: string, 
     onChange: (val: string) => void, 
     players: Player[], 
-    exclude: string[], 
     label: string, 
     compact?: boolean 
 }) => (
@@ -55,7 +53,7 @@ const PlayerSelect = ({
       className={`w-full bg-white border border-slate-300 rounded-lg shadow-sm text-slate-900 font-medium focus:ring-2 focus:ring-pickle-500 outline-none ${compact ? 'py-1 px-2 text-xs' : 'p-2 text-sm'}`}
     >
       <option value="">{label}</option>
-      {players.filter(p => !exclude.includes(String(p.id))).map(p => (
+      {players.map(p => (
           <option key={p.id} value={String(p.id)}>{p.name}</option>
       ))}
     </select>
@@ -200,7 +198,49 @@ export const Analysis: React.FC<AnalysisProps> = ({ players, matches }) => {
   };
 
   const updatePredictionTeam = (id: string, field: 'p1' | 'p2', value: string) => {
-      setPredictionTeams(prev => prev.map(t => t.id === id ? { ...t, [field]: value } : t));
+      setPredictionTeams(prev => {
+          let updated = [...prev];
+          
+          if (value !== '') {
+              let swapTeamIdx = -1;
+              let swapField: 'p1' | 'p2' | null = null;
+              
+              for (let i = 0; i < updated.length; i++) {
+                  if (updated[i].p1 === value) { swapTeamIdx = i; swapField = 'p1'; break; }
+                  if (updated[i].p2 === value) { swapTeamIdx = i; swapField = 'p2'; break; }
+              }
+              
+              if (swapTeamIdx !== -1 && swapField) {
+                  const currentTeamIdx = updated.findIndex(t => t.id === id);
+                  if (currentTeamIdx !== -1) {
+                      const currentValue = updated[currentTeamIdx][field];
+                      updated[swapTeamIdx] = { ...updated[swapTeamIdx], [swapField]: currentValue };
+                  }
+              }
+          }
+          
+          return updated.map(t => t.id === id ? { ...t, [field]: value } : t);
+      });
+  };
+
+  const updatePairField = (field: 'pair1P1' | 'pair1P2' | 'pair2P1' | 'pair2P2', val: string) => {
+      const pairs = { 'pair1P1': pair1P1, 'pair1P2': pair1P2, 'pair2P1': pair2P1, 'pair2P2': pair2P2 };
+      
+      if (val !== '') {
+          for (const [k, v] of Object.entries(pairs)) {
+              if (v === val && k !== field) {
+                  if (k === 'pair1P1') setPair1P1(pairs[field]);
+                  if (k === 'pair1P2') setPair1P2(pairs[field]);
+                  if (k === 'pair2P1') setPair2P1(pairs[field]);
+                  if (k === 'pair2P2') setPair2P2(pairs[field]);
+              }
+          }
+      }
+
+      if (field === 'pair1P1') setPair1P1(val);
+      if (field === 'pair1P2') setPair1P2(val);
+      if (field === 'pair2P1') setPair2P1(val);
+      if (field === 'pair2P2') setPair2P2(val);
   };
 
   const handleSimulateTournament = () => {
@@ -362,9 +402,11 @@ export const Analysis: React.FC<AnalysisProps> = ({ players, matches }) => {
                     <div className="w-full md:w-1/3">
                         <PlayerSelect 
                             value={selectedId1} 
-                            onChange={setSelectedId1} 
+                            onChange={(val) => {
+                                if (val === selectedId2) setSelectedId2(selectedId1);
+                                setSelectedId1(val);
+                            }} 
                             players={sortedPlayers}
-                            exclude={[selectedId2]} 
                             label="-- Chọn Người A --" 
                         />
                     </div>
@@ -372,9 +414,11 @@ export const Analysis: React.FC<AnalysisProps> = ({ players, matches }) => {
                     <div className="w-full md:w-1/3">
                         <PlayerSelect 
                             value={selectedId2} 
-                            onChange={setSelectedId2} 
+                            onChange={(val) => {
+                                if (val === selectedId1) setSelectedId1(selectedId2);
+                                setSelectedId2(val);
+                            }} 
                             players={sortedPlayers}
-                            exclude={[selectedId1]} 
                             label="-- Chọn Người B --" 
                         />
                     </div>
@@ -389,8 +433,8 @@ export const Analysis: React.FC<AnalysisProps> = ({ players, matches }) => {
                             Cặp Đôi 1
                         </div>
                         <div className="flex flex-col gap-2 mt-1">
-                            <PlayerSelect value={pair1P1} onChange={setPair1P1} players={sortedPlayers} exclude={[pair1P2, pair2P1, pair2P2]} label="Thành viên 1" />
-                            <PlayerSelect value={pair1P2} onChange={setPair1P2} players={sortedPlayers} exclude={[pair1P1, pair2P1, pair2P2]} label="Thành viên 2" />
+                            <PlayerSelect value={pair1P1} onChange={(val) => updatePairField('pair1P1', val)} players={sortedPlayers} label="Thành viên 1" />
+                            <PlayerSelect value={pair1P2} onChange={(val) => updatePairField('pair1P2', val)} players={sortedPlayers} label="Thành viên 2" />
                         </div>
                     </div>
 
@@ -404,8 +448,8 @@ export const Analysis: React.FC<AnalysisProps> = ({ players, matches }) => {
                             Cặp Đôi 2
                         </div>
                         <div className="flex flex-col gap-2 mt-1">
-                            <PlayerSelect value={pair2P1} onChange={setPair2P1} players={sortedPlayers} exclude={[pair1P1, pair1P2, pair2P2]} label="Thành viên 1" />
-                            <PlayerSelect value={pair2P2} onChange={setPair2P2} players={sortedPlayers} exclude={[pair1P1, pair1P2, pair2P1]} label="Thành viên 2" />
+                            <PlayerSelect value={pair2P1} onChange={(val) => updatePairField('pair2P1', val)} players={sortedPlayers} label="Thành viên 1" />
+                            <PlayerSelect value={pair2P2} onChange={(val) => updatePairField('pair2P2', val)} players={sortedPlayers} label="Thành viên 2" />
                         </div>
                     </div>
                 </div>
@@ -443,7 +487,6 @@ export const Analysis: React.FC<AnalysisProps> = ({ players, matches }) => {
                                             value={team.p1} 
                                             onChange={(v) => updatePredictionTeam(team.id, 'p1', v)} 
                                             players={sortedPlayers}
-                                            exclude={[team.p2, ...otherPlayers]} 
                                             label="Thành viên 1" 
                                             compact
                                         />
@@ -451,7 +494,6 @@ export const Analysis: React.FC<AnalysisProps> = ({ players, matches }) => {
                                             value={team.p2} 
                                             onChange={(v) => updatePredictionTeam(team.id, 'p2', v)} 
                                             players={sortedPlayers}
-                                            exclude={[team.p1, ...otherPlayers]} 
                                             label="Thành viên 2" 
                                             compact
                                         />

@@ -1579,6 +1579,7 @@ const TeamMatchManager: React.FC<TournamentManagerProps> = ({
                                                                 const newGroupSetups = [...matchGroupSetups];
                                                                 newGroupSetups[index] = [e.target.value, matchGroupSetups[index]?.[1] !== undefined && matchGroupSetups[index]?.[1] !== '' ? matchGroupSetups[index][1] : '1'];
                                                                 setMatchGroupSetups(newGroupSetups);
+                                                                if (tournamentData?.isActive) onUpdateTournament({ ...tournamentData, matchGroupSetups: newGroupSetups });
                                                             }}
                                                             className="text-xs p-1 rounded border bg-slate-50 font-bold"
                                                         >
@@ -1593,6 +1594,7 @@ const TeamMatchManager: React.FC<TournamentManagerProps> = ({
                                                                 const newGroupSetups = [...matchGroupSetups];
                                                                 newGroupSetups[index] = [matchGroupSetups[index]?.[0] !== undefined && matchGroupSetups[index]?.[0] !== '' ? matchGroupSetups[index][0] : '0', e.target.value];
                                                                 setMatchGroupSetups(newGroupSetups);
+                                                                if (tournamentData?.isActive) onUpdateTournament({ ...tournamentData, matchGroupSetups: newGroupSetups });
                                                             }}
                                                             className="text-xs p-1 rounded border bg-slate-50 font-bold"
                                                         >
@@ -1607,6 +1609,7 @@ const TeamMatchManager: React.FC<TournamentManagerProps> = ({
                                                                 const newSetups = [...matchSetups];
                                                                 newSetups[index] = '';
                                                                 setMatchSetups(newSetups);
+                                                                if (tournamentData?.isActive) onUpdateTournament({ ...tournamentData, matchSetups: newSetups });
                                                             }}
                                                             className={`px-2 py-1 text-[10px] font-bold rounded border ${!matchSetups[index] ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100'}`}
                                                         >
@@ -1619,6 +1622,7 @@ const TeamMatchManager: React.FC<TournamentManagerProps> = ({
                                                                     const newSetups = [...matchSetups];
                                                                     newSetups[index] = combo;
                                                                     setMatchSetups(newSetups);
+                                                                    if (tournamentData?.isActive) onUpdateTournament({ ...tournamentData, matchSetups: newSetups });
                                                                 }}
                                                                 className={`px-2 py-1 text-[10px] font-bold rounded border ${matchSetups[index] === combo ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100'}`}
                                                             >
