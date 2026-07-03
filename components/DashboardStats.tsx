@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Match, Player } from '../types';
 import { Card } from './Card';
-import { TrendingUp, Users, Banknote, Calendar, Grid3X3, Award, TrendingDown, Activity, Minus, Scale, ArrowUpCircle, ArrowDownCircle, ArrowRightLeft, ArrowUpDown, Percent, Hash, User } from 'lucide-react';
+import { TrendingUp, Users, Banknote, Calendar, Grid3X3, Award, TrendingDown, Activity, Minus, Scale, ArrowUpCircle, ArrowDownCircle, ArrowRightLeft, ArrowUpDown, Percent, Hash, User, Crown } from 'lucide-react';
 import { HeadToHeadMatrix } from './HeadToHeadMatrix';
 import { getDailyRatingHistory, calculatePlayerStats } from '../services/storageService';
 import { analyzeHistoryHandicaps } from '../services/autoMatchmaker';
@@ -46,6 +46,23 @@ type SortDirection = 'asc' | 'desc';
 type SortKey = 'name' | 'total' | 'balanced' | 'underdog' | 'favorite';
 
 export const DashboardStats: React.FC<DashboardStatsProps> = ({ matches: sourceMatches, players: sourcePlayers }) => {
+    // Latest Trophy calculation
+    const latestTrophyMonth = useMemo(() => {
+        let maxMonth = '';
+        sourcePlayers.forEach(p => {
+            if (p.trophies) {
+                p.trophies.forEach(t => {
+                    if (t.month > maxMonth) maxMonth = t.month;
+                });
+            }
+        });
+        return maxMonth;
+    }, [sourcePlayers]);
+
+    const hasLatestTrophy = (player: Player) => {
+        if (!latestTrophyMonth || !player.trophies) return false;
+        return player.trophies.some(t => t.month === latestTrophyMonth);
+    };
   // Mode filter (Singles vs Doubles separate)
   const [dashboardMode, setDashboardMode] = useState<'doubles' | 'singles'>('doubles');
 
@@ -820,7 +837,8 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({ matches: sourceM
                                             {idx + 1}
                                         </span>
                                     </td>
-                                    <td className="px-2 sm:px-4 py-3 font-medium text-slate-900 truncate">
+                                    <td className="px-2 sm:px-4 py-3 font-medium text-slate-900 truncate flex items-center gap-1">
+                                        {hasLatestTrophy(player) && <Crown className="w-4 h-4 text-yellow-500 fill-yellow-500" />}
                                         {player.name}
                                     </td>
                                     <td className="px-1 sm:px-4 py-3 text-center">

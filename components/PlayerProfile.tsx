@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Player, Match } from '../types';
 import { Card } from './Card';
-import { Trophy, TrendingUp, DollarSign, X, AlertTriangle, Target, Gamepad2, Award, Handshake, HeartCrack, Users, List, Calendar, ChevronRight, ChevronDown, Activity, Gift, Swords } from 'lucide-react';
+import { Trophy, TrendingUp, DollarSign, X, AlertTriangle, Target, Gamepad2, Award, Handshake, HeartCrack, Users, List, Calendar, ChevronRight, ChevronDown, Activity, Gift, Swords, Plus, Trash2 } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, ReferenceLine, Cell } from 'recharts';
 import { getDailyRatingHistory, getTournamentStandings, getPlayerRatingHistory } from '../services/storageService';
 
@@ -10,6 +10,7 @@ interface PlayerProfileProps {
   players: Player[]; // Full list to lookup names
   matches: Match[];
   onClose: () => void;
+  onUpdatePlayer: (id: string, updates: Partial<Player>) => void;
 }
 
 interface RivalStats {
@@ -29,9 +30,35 @@ interface PartnerStats {
     winRate: number;
 }
 
-export const PlayerProfile: React.FC<PlayerProfileProps> = ({ player, players, matches, onClose }) => {
+export const PlayerProfile: React.FC<PlayerProfileProps> = ({ player, players, matches, onClose, onUpdatePlayer }) => {
   const [activeTab, setActiveTab] = useState<'overview' | 'history'>('overview');
   const [expandedDates, setExpandedDates] = useState<Set<string>>(new Set());
+
+  // Manual Trophy State
+  const [showTrophyForm, setShowTrophyForm] = useState(false);
+  const [newTrophyType, setNewTrophyType] = useState<'gold'|'green'>('gold');
+  const [newTrophyMonth, setNewTrophyMonth] = useState('');
+
+  const handleAddTrophy = () => {
+      if (!newTrophyMonth) return;
+      
+      const newTrophy = {
+          id: Date.now().toString(),
+          type: newTrophyType,
+          month: newTrophyMonth
+      };
+      
+      const updatedTrophies = [...(player.trophies || []), newTrophy];
+      onUpdatePlayer(player.id, { trophies: updatedTrophies });
+      
+      setNewTrophyMonth('');
+      setShowTrophyForm(false);
+  };
+
+  const handleDeleteTrophy = (trophyId: string) => {
+      const updatedTrophies = (player.trophies || []).filter(t => t.id !== trophyId);
+      onUpdatePlayer(player.id, { trophies: updatedTrophies });
+  };
 
   const toggleDate = (date: string) => {
       const newSet = new Set(expandedDates);
@@ -479,6 +506,84 @@ export const PlayerProfile: React.FC<PlayerProfileProps> = ({ player, players, m
                                     <div className="text-2xl font-black text-yellow-700">{calculatedChampionships}</div>
                                     <div className="text-xs text-yellow-600 font-bold uppercase">Vô Địch</div>
                                 </Card>
+                            </div>
+
+                            {/* SECTION: BỘ SƯU TẬP CÚP */}
+                            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 md:p-6 animate-fade-in">
+                                <div className="flex items-center justify-between mb-4">
+                                    <h3 className="font-bold text-slate-800 flex items-center gap-2">
+                                        <Award className="w-5 h-5 text-yellow-500" /> Bộ Sưu Tập Cúp
+                                    </h3>
+                                    <button 
+                                        onClick={() => setShowTrophyForm(!showTrophyForm)}
+                                        className="text-xs font-bold text-pickle-600 hover:text-pickle-700 flex items-center gap-1 bg-pickle-50 hover:bg-pickle-100 px-3 py-1.5 rounded-lg transition-colors"
+                                    >
+                                        <Plus className="w-4 h-4" /> Thêm Cúp
+                                    </button>
+                                </div>
+
+                                {showTrophyForm && (
+                                    <div className="mb-6 p-4 bg-slate-50 rounded-xl border border-slate-200 animate-fade-in flex flex-col md:flex-row gap-4 items-end">
+                                        <div className="flex-1 w-full">
+                                            <label className="block text-xs font-bold text-slate-500 mb-1">Loại Cúp</label>
+                                            <select 
+                                                value={newTrophyType}
+                                                onChange={(e) => setNewTrophyType(e.target.value as any)}
+                                                className="w-full p-2.5 bg-white border border-slate-300 rounded-lg text-sm font-medium outline-none focus:ring-2 focus:ring-pickle-500"
+                                            >
+                                                <option value="gold">Cúp Vàng (Chia cặp vòng tròn)</option>
+                                                <option value="green">Cúp Xanh Lá (Đánh tour)</option>
+                                            </select>
+                                        </div>
+                                        <div className="flex-1 w-full">
+                                            <label className="block text-xs font-bold text-slate-500 mb-1">Tháng (VD: 2026-07)</label>
+                                            <input 
+                                                type="month" 
+                                                value={newTrophyMonth}
+                                                onChange={(e) => setNewTrophyMonth(e.target.value)}
+                                                className="w-full p-2.5 bg-white border border-slate-300 rounded-lg text-sm font-medium outline-none focus:ring-2 focus:ring-pickle-500"
+                                            />
+                                        </div>
+                                        <button 
+                                            onClick={handleAddTrophy}
+                                            disabled={!newTrophyMonth}
+                                            className="w-full md:w-auto px-6 py-2.5 bg-slate-800 hover:bg-slate-900 text-white font-bold rounded-lg transition-colors disabled:opacity-50"
+                                        >
+                                            Lưu
+                                        </button>
+                                    </div>
+                                )}
+
+                                {(!player.trophies || player.trophies.length === 0) ? (
+                                    <div className="text-center py-6 text-slate-400 text-sm italic bg-slate-50 rounded-lg border border-dashed border-slate-200">
+                                        Chưa có cúp nào được ghi nhận.
+                                    </div>
+                                ) : (
+                                    <div className="flex flex-wrap gap-4">
+                                        {player.trophies.map(trophy => (
+                                            <div key={trophy.id} className={`flex items-center gap-3 px-4 py-3 rounded-xl border ${trophy.type === 'gold' ? 'bg-yellow-50/50 border-yellow-200' : 'bg-emerald-50/50 border-emerald-200'} shadow-sm relative group`}>
+                                                <div className={`p-2 rounded-full ${trophy.type === 'gold' ? 'bg-yellow-100 text-yellow-600' : 'bg-emerald-100 text-emerald-600'}`}>
+                                                    <Trophy className="w-5 h-5" />
+                                                </div>
+                                                <div className="pr-6">
+                                                    <div className={`text-sm font-bold ${trophy.type === 'gold' ? 'text-yellow-700' : 'text-emerald-700'}`}>
+                                                        {trophy.type === 'gold' ? 'Vô Địch Vòng Tròn' : 'Vô Địch Đánh Tour'}
+                                                    </div>
+                                                    <div className="text-xs font-medium text-slate-500">
+                                                        Tháng {trophy.month.split('-').reverse().join('/')}
+                                                    </div>
+                                                </div>
+                                                <button 
+                                                    onClick={() => handleDeleteTrophy(trophy.id)}
+                                                    className="absolute top-2 right-2 p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-md transition-colors opacity-0 group-hover:opacity-100"
+                                                    title="Xóa cúp"
+                                                >
+                                                    <Trash2 className="w-3.5 h-3.5" />
+                                                </button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
                             </div>
 
                             {/* SECTION: RIVALS & PARTNERS HIGHLIGHTS */}

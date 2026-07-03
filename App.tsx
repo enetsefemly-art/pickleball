@@ -339,6 +339,22 @@ const App: React.FC = () => {
       await addPlayerToCloud(newPlayer);
   };
 
+  const handleUpdatePlayer = async (id: string, updates: Partial<Player>) => {
+      const playerToUpdate = players.find(p => p.id === id);
+      if (!playerToUpdate) return;
+      
+      const newPlayer = { ...playerToUpdate, ...updates };
+      
+      const updatedPlayers = players.map(p => 
+          p.id === id ? newPlayer : p
+      );
+      
+      setPlayers(updatedPlayers);
+      savePlayers(updatedPlayers);
+      
+      await addPlayerToCloud(newPlayer);
+  };
+
   // --- COMPONENTS ---
   
   const HeaderNavBtn = ({ tab, label }: { tab: any; label: string }) => (
@@ -505,6 +521,7 @@ const App: React.FC = () => {
                     onAddPlayer={handleAddPlayer} 
                     onDeletePlayer={handleDeletePlayer}
                     onToggleActive={handleTogglePlayerStatus}
+                    onUpdatePlayer={handleUpdatePlayer}
                 />
             )}
         </div>

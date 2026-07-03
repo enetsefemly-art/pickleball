@@ -1,4 +1,10 @@
 
+export interface PlayerTrophy {
+  id: string;
+  type: 'gold' | 'green'; // gold: chia cặp vòng tròn, green: đánh tour
+  month: string; // YYYY-MM
+}
+
 export interface Player {
   id: string;
   name: string;
@@ -14,6 +20,7 @@ export interface Player {
   championships?: number; 
   isActive?: boolean; 
   pool?: string;
+  trophies?: PlayerTrophy[];
 }
 
 export interface Match {

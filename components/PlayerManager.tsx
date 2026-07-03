@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Player } from '../types';
 import { Card } from './Card';
-import { Plus, Trash2, Trophy, Eye, EyeOff } from 'lucide-react';
+import { Plus, Trash2, Trophy, Eye, EyeOff, Crown } from 'lucide-react';
 import { PlayerProfile } from './PlayerProfile';
 import { getMatches } from '../services/storageService'; // Helper to pass matches to profile
 
@@ -9,20 +9,42 @@ interface PlayerManagerProps {
   players: Player[];
   onAddPlayer: (name: string, initialPoints: number) => void;
   onDeletePlayer: (id: string) => void;
-  onToggleActive: (id: string) => void; // New Prop
+  onToggleActive: (id: string) => void;
+  onUpdatePlayer: (id: string, updates: Partial<Player>) => void;
 }
 
 export const PlayerManager: React.FC<PlayerManagerProps> = ({ 
   players, 
   onAddPlayer,
   onDeletePlayer,
-  onToggleActive
+  onToggleActive,
+  onUpdatePlayer
 }) => {
   const [newName, setNewName] = useState('');
   const [initialPoints, setInitialPoints] = useState('1000');
   
   // State for Player Profile Modal
-  const [selectedPlayer, setSelectedPlayer] = useState<Player | null>(null);
+  const [selectedPlayerId, setSelectedPlayerId] = useState<string | null>(null);
+  
+  const selectedPlayer = selectedPlayerId ? players.find(p => p.id === selectedPlayerId) || null : null;
+
+  // Latest Trophy calculation
+  const latestTrophyMonth = useMemo(() => {
+      let maxMonth = '';
+      players.forEach(p => {
+          if (p.trophies) {
+              p.trophies.forEach(t => {
+                  if (t.month > maxMonth) maxMonth = t.month;
+              });
+          }
+      });
+      return maxMonth;
+  }, [players]);
+
+  const hasLatestTrophy = (player: Player) => {
+      if (!latestTrophyMonth || !player.trophies) return false;
+      return player.trophies.some(t => t.month === latestTrophyMonth);
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -86,7 +108,7 @@ export const PlayerManager: React.FC<PlayerManagerProps> = ({
         {players.map(player => (
             <div 
                 key={player.id} 
-                onClick={() => setSelectedPlayer(player)}
+                onClick={() => setSelectedPlayerId(player.id)}
                 className={`p-4 rounded-xl border shadow-sm flex flex-col gap-4 hover:shadow-md transition-all cursor-pointer group relative overflow-hidden ${player.isActive === false ? 'bg-slate-100 border-slate-200 opacity-70' : 'bg-white border-slate-200'}`}
             >
                 {/* Decoration */}
@@ -97,7 +119,7 @@ export const PlayerManager: React.FC<PlayerManagerProps> = ({
                         <div className={`w-12 h-12 rounded-full flex items-center justify-center font-bold text-lg border-2 transition-colors ${player.isActive === false ? 'bg-slate-200 text-slate-400 border-slate-300' : 'bg-slate-100 text-slate-700 border-slate-200 group-hover:border-pickle-500'}`}>
                             {player.name.charAt(0).toUpperCase()}
                         </div>
-                        {(player.championships || 0) > 0 && (
+                        {hasLatestTrophy(player) && (
                              <div className="absolute -top-1 -right-1 bg-yellow-400 text-white text-[10px] w-5 h-5 rounded-full flex items-center justify-center border-2 border-white shadow-sm">
                                 <Trophy className="w-2.5 h-2.5 fill-current" />
                              </div>
@@ -134,7 +156,7 @@ export const PlayerManager: React.FC<PlayerManagerProps> = ({
                         </div>
                          <div className="flex flex-col">
                             <span className="text-slate-400 font-medium uppercase text-[10px]">Cúp</span>
-                            <span className="font-bold text-yellow-600">{player.championships || 0}</span>
+                            <span className="font-bold text-yellow-600">{player.trophies?.length || 0}</span>
                         </div>
                     </div>
                     
@@ -174,7 +196,8 @@ export const PlayerManager: React.FC<PlayerManagerProps> = ({
             player={selectedPlayer} 
             players={players}
             matches={allMatches}
-            onClose={() => setSelectedPlayer(null)} 
+            onClose={() => setSelectedPlayerId(null)} 
+            onUpdatePlayer={onUpdatePlayer}
         />
       )}
     </div>

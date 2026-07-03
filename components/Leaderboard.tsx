@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Player, Match } from '../types';
 import { calculatePlayerStats } from '../services/storageService';
-import { Trophy, Medal, Filter, Banknote, Users, User } from 'lucide-react';
+import { Trophy, Medal, Filter, Banknote, Users, User, Crown } from 'lucide-react';
 
 interface LeaderboardProps {
   players: Player[]; // Original list of players
@@ -31,6 +31,24 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({ players: initialPlayer
   
   const [selectedMonth, setSelectedMonth] = useState<string>(new Date().toISOString().slice(0, 7)); 
   const [selectedDay, setSelectedDay] = useState<string>(new Date().toISOString().split('T')[0]); 
+
+  // Latest Trophy calculation
+  const latestTrophyMonth = useMemo(() => {
+      let maxMonth = '';
+      initialPlayers.forEach(p => {
+          if (p.trophies) {
+              p.trophies.forEach(t => {
+                  if (t.month > maxMonth) maxMonth = t.month;
+              });
+          }
+      });
+      return maxMonth;
+  }, [initialPlayers]);
+
+  const hasLatestTrophy = (player: Player) => {
+      if (!latestTrophyMonth || !player.trophies) return false;
+      return player.trophies.some(t => t.month === latestTrophyMonth);
+  };
   
   const getCurrentWeekVal = () => {
     const d = new Date();
@@ -366,7 +384,10 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({ players: initialPlayer
                     <td className="px-3 sm:px-6 py-3 sm:py-4">
                         <div className="flex items-center gap-2">
                             <div className="sm:hidden w-6 h-6 rounded-full bg-slate-100 text-slate-500 font-bold text-xs flex items-center justify-center border border-slate-200">{index + 1}</div>
-                            <div className="font-semibold text-slate-900 truncate text-sm sm:text-base">{player.name}</div>
+                            <div className="font-semibold text-slate-900 truncate text-sm sm:text-base flex items-center gap-1">
+                                {hasLatestTrophy(player) && <Crown className="w-4 h-4 text-yellow-500 fill-yellow-500" />}
+                                {player.name}
+                            </div>
                         </div>
                     </td>
                     <td className="px-1 sm:px-6 py-3 sm:py-4 text-center">
@@ -408,7 +429,10 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({ players: initialPlayer
                     <td className="px-3 sm:px-6 py-3 sm:py-4">
                         <div className="flex items-center gap-2">
                             <div className="sm:hidden w-6 h-6 rounded-full bg-slate-100 text-slate-500 font-bold text-xs flex items-center justify-center border border-slate-200">{index + 1}</div>
-                            <div className="font-semibold text-slate-900 text-sm sm:text-base truncate">{item.player.name}</div>
+                            <div className="font-semibold text-slate-900 text-sm sm:text-base truncate flex items-center gap-1">
+                                {hasLatestTrophy(item.player) && <Crown className="w-4 h-4 text-yellow-500 fill-yellow-500" />}
+                                {item.player.name}
+                            </div>
                         </div>
                     </td>
                     <td className="px-1 sm:px-6 py-3 sm:py-4 text-center"><div className="inline-flex items-center px-2 py-0.5 rounded-full text-xs sm:text-sm font-bold bg-blue-100 text-blue-800 border border-blue-200">{item.rating.toFixed(2)}</div></td>
