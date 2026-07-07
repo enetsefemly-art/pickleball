@@ -71,31 +71,7 @@ export const PlayerProfile: React.FC<PlayerProfileProps> = ({ player, players, m
   const playerLookup = useMemo(() => new Map(players.map(p => [String(p.id), p])), [players]);
 
   // --- CHAMPIONSHIP CALCULATION (GLOBAL HISTORY) ---
-  const calculatedChampionships = useMemo(() => {
-      const uniqueMonths = new Set<string>();
-      // Scan ALL matches to find all tournament months involved
-      matches.forEach(m => {
-          if (m.type === 'tournament') {
-              uniqueMonths.add(m.date.slice(0, 7));
-          }
-      });
-
-      let count = 0;
-      const pId = String(player.id);
-
-      uniqueMonths.forEach(monthKey => {
-          // Get standings for that month using ALL matches (no time limit filter applied to 'matches' prop here)
-          const standings = getTournamentStandings(monthKey, players, matches);
-          // Check if this player is in the #1 team
-          if (standings.length > 0) {
-              const championTeam = standings[0];
-              if (championTeam.playerIds.includes(pId)) {
-                  count++;
-              }
-          }
-      });
-      return count;
-  }, [matches, player.id, players]);
+  const calculatedChampionships = player.trophies?.length || 0;
 
   // --- ANALYSIS LOGIC ---
   const analysis = useMemo(() => {
@@ -385,7 +361,11 @@ export const PlayerProfile: React.FC<PlayerProfileProps> = ({ player, players, m
             const bonus = dailyChange - sumMatchChange;
             let note = undefined;
             if (Math.abs(bonus) > 0.001) {
-                note = `Thưởng/Phạt khác: ${bonus > 0 ? '+' : ''}${bonus.toFixed(4)}`;
+                if (bonus > 0) {
+                    note = `Thưởng giải tháng: +${bonus.toFixed(4)}`;
+                } else {
+                    note = `Thưởng/Phạt khác: ${bonus.toFixed(4)}`;
+                }
             }
 
             result.push({

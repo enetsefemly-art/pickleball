@@ -296,11 +296,12 @@ const calculateStandings = (matches: Match[]) => {
 };
 
 // Exported function for external use (e.g. TournamentManager, PlayerProfile)
-export const getTournamentStandings = (monthKey: string, _players: Player[], matches: Match[], matchType: string = 'tournament') => {
+export const getTournamentStandings = (monthKey: string, _players: Player[], matches: Match[]) => {
     // Filter matches for the specific month and tournament type
     // FIX: Removed RATING_START_DATE check so historical cups (e.g. Oct) are counted
     const validMatches = matches.filter(m => {
-        return m.date.startsWith(monthKey) && m.type === matchType;
+        return m.date.startsWith(monthKey) && 
+               (m.type === 'tournament' || m.type === 'tour');
     });
     
     return calculateStandings(validMatches);
@@ -309,8 +310,7 @@ export const getTournamentStandings = (monthKey: string, _players: Player[], mat
 // Helper: Calculate bonuses for a specific month based on matches
 
 // Helper: Calculate bonuses for a specific month based on matches
-
-const applyRoundRobinBonuses = (
+const calculateAndApplyMonthlyBonuses = (
     _monthKey: string, 
     monthMatches: Match[], 
     playerMap: Map<string, Player>
@@ -318,20 +318,12 @@ const applyRoundRobinBonuses = (
     // 1. Calculate standings using ALL matches for this month (for Cups)
     const finalStandings = calculateStandings(monthMatches);
 
-    // FIX: Award Cup to #1 regardless of team count (if there is a winner)
-    if (finalStandings.length > 0) {
-        const championTeam = finalStandings[0];
-        championTeam.playerIds.forEach(pid => {
-            const p = playerMap.get(String(pid));
-            if (p) {
-                p.championships = (p.championships || 0) + 1;
-            }
-        });
-    }
-
     // 2. Check if this month is eligible for RATING updates (on or after Start Date)
     // Bonus Rating Points (Top 3) strictly require >= 3 teams
     if (finalStandings.length < 3) return;
+
+    const hasEligibleMatches = monthMatches.some(m => new Date(m.date).getTime() >= RATING_START_DATE.getTime());
+    if (!hasEligibleMatches) return;
 
     const N = finalStandings.length;
     const S = 1 + 0.10 * (N - 5);
@@ -346,28 +338,11 @@ const applyRoundRobinBonuses = (
         team.playerIds.forEach(pid => {
             const p = playerMap.get(String(pid));
             if (p) {
-                {
-                    const currentRating = p.tournamentRating || 3.0;
-                    const updatedRating = Math.min(V2_RATING_MAX, Math.max(V2_RATING_MIN, currentRating + placementBonus));
-                    p.tournamentRating = Math.round(updatedRating * 10000) / 10000;
-                }
+                const currentRating = p.tournamentRating || 3.0;
+                const updatedRating = Math.min(V2_RATING_MAX, Math.max(V2_RATING_MIN, currentRating + placementBonus));
+                p.tournamentRating = Math.round(updatedRating * 10000) / 10000;
             }
         });
-    });
-};
-
-const applyTourBonuses = (
-    monthKey: string, 
-    playerMap: Map<string, Player>
-) => {
-    playerMap.forEach(p => {
-        // If the player has a cup (any cup) for this month, they get +0.1
-        // The user says "Điểm cộng thêm 0.1 cho tất cả những người có dữ liệu cup của tháng trong bộ sưu tập cúp."
-        if (p.trophies && p.trophies.some(t => t.month === monthKey)) {
-            const currentRating = p.tournamentRating || 3.0;
-            const updatedRating = Math.min(V2_RATING_MAX, Math.max(V2_RATING_MIN, currentRating + 0.1));
-            p.tournamentRating = Math.round(updatedRating * 10000) / 10000;
-        }
     });
 };
 
@@ -393,20 +368,19 @@ export const calculatePlayerStats = (players: Player[], matches: Match[]): Playe
   const playerMap = new Map(resetPlayers.map(p => [String(p.id), p]));
   const sortedMatches = [...matches].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
   // --- PRE-CALCULATE TOURNAMENT TRIGGERS ---
-  const roundRobinMatchesByMonth = new Map<string, Match[]>();
-  
+  const tournamentEndTriggers = new Set<string>();
+  const tournamentMatchesByMonth = new Map<string, Match[]>();
   sortedMatches.forEach(m => {
-      const month = m.date.slice(0, 7);
-      if (m.type === "tournament") {
-          if (!roundRobinMatchesByMonth.has(month)) roundRobinMatchesByMonth.set(month, []);
-          roundRobinMatchesByMonth.get(month)!.push(m);
+      if (m.type === 'tournament' || m.type === 'tour') {
+          const month = m.date.slice(0, 7);
+          if (!tournamentMatchesByMonth.has(month)) tournamentMatchesByMonth.set(month, []);
+          tournamentMatchesByMonth.get(month)!.push(m);
       }
   });
-
-  const processedMonths = new Set<string>();
-
-  for (let i = 0; i < sortedMatches.length; i++) {
-    const match = sortedMatches[i];
+  tournamentMatchesByMonth.forEach((list) => {
+      if (list.length > 0) tournamentEndTriggers.add(list[list.length - 1].id);
+  });
+  for (const match of sortedMatches) {
     const matchDateObj = new Date(match.date);
     
     // CHECK: Is the match eligible for points (on or after Start Date)
@@ -458,6 +432,12 @@ export const calculatePlayerStats = (players: Player[], matches: Match[]): Playe
                 if (!p) return;
                 let currentRating = p.tournamentRating || 3.0;
                 let step = RATING_STEP_V1;
+                if (isWin && (match.type === 'tournament' || match.type === 'tour')) {
+                    const month = match.date.slice(0, 7);
+                    if (p.trophies && p.trophies.some(t => t.month === month)) {
+                        step *= 2;
+                    }
+                }
                 if (isWin) currentRating = Math.min(MAX_RATING_V1, currentRating + step);
                 else currentRating = Math.max(MIN_RATING_V1, currentRating - step);
                 p.tournamentRating = Math.round(currentRating * 100) / 100;
@@ -493,6 +473,12 @@ export const calculatePlayerStats = (players: Player[], matches: Match[]): Playe
                 W = w_me / (w_me + w_partner);
             }
             let change = Math.min(V2_MAX_CHANGE, Math.max(-V2_MAX_CHANGE, W * teamChange));
+            if (change > 0 && (match.type === 'tournament' || match.type === 'tour')) {
+                const month = match.date.slice(0, 7);
+                if (p.trophies && p.trophies.some(t => t.month === month)) {
+                    change *= 2;
+                }
+            }
             pendingUpdates.set(pid, change);
         };
 
@@ -510,27 +496,12 @@ export const calculatePlayerStats = (players: Player[], matches: Match[]): Playe
         });
     }
 
-    // Apply BONUS immediately if this is the last match of the month
-    const nextMatch = sortedMatches[i + 1];
-    if (!nextMatch || nextMatch.date.slice(0, 7) !== match.date.slice(0, 7)) {
+    if (tournamentEndTriggers.has(match.id)) {
         const month = match.date.slice(0, 7);
-        const rMatches = roundRobinMatchesByMonth.get(month) || [];
-        applyRoundRobinBonuses(month, rMatches, playerMap);
-        applyTourBonuses(month, playerMap);
-        processedMonths.add(month);
+        const tourMatches = tournamentMatchesByMonth.get(month) || [];
+        calculateAndApplyMonthlyBonuses(month, tourMatches, playerMap);
     }
   }
-
-  // Apply bonuses for months that had NO matches but have cups
-  const unprocessedMonths = new Set<string>();
-  players.forEach(p => {
-      if (p.trophies) p.trophies.forEach(t => {
-          if (!processedMonths.has(t.month)) unprocessedMonths.add(t.month);
-      });
-  });
-  Array.from(unprocessedMonths).sort().forEach(month => {
-      applyTourBonuses(month, playerMap);
-  });
 
   return Array.from(playerMap.values());
 };
@@ -553,29 +524,27 @@ export const getDailyRatingHistory = (players: Player[], matches: Match[]) => {
     });
 
     const sortedMatches = [...matches].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-
-
-    // --- PRE-CALCULATE TOURNAMENT TRIGGERS ---
-    const roundRobinMatchesByMonth = new Map<string, Match[]>();
-    
-    sortedMatches.forEach(m => {
-        const month = m.date.slice(0, 7);
-        if (m.type === 'tournament') {
-            if (!roundRobinMatchesByMonth.has(month)) roundRobinMatchesByMonth.set(month, []);
-            roundRobinMatchesByMonth.get(month)!.push(m);
-        }
-    });
-
-
-
-    
-    // 2. Loop
-    
+  // --- PRE-CALCULATE TOURNAMENT TRIGGERS ---
+  const tournamentEndTriggers = new Set<string>();
+  const tournamentMatchesByMonth = new Map<string, Match[]>();
+  sortedMatches.forEach(m => {
+      if (m.type === 'tournament' || m.type === 'tour') {
+          const month = m.date.slice(0, 7);
+          if (!tournamentMatchesByMonth.has(month)) tournamentMatchesByMonth.set(month, []);
+          tournamentMatchesByMonth.get(month)!.push(m);
+      }
+  });
+  tournamentMatchesByMonth.forEach((list) => {
+      if (list.length > 0) tournamentEndTriggers.add(list[list.length - 1].id);
+  });
+  // Function to snapshot
     const takeSnapshot = (date: string) => {
         const snapshot: Record<string, number> = {};
         playerMap.forEach(p => {
             snapshot[p.id] = p.tournamentRating || 3.0;
         });
+        
+        // If snapshot for this date already exists, update it (last state of day)
         const existing = history.find(h => h.date === date);
         if (existing) {
             existing.ratings = snapshot;
@@ -583,11 +552,9 @@ export const getDailyRatingHistory = (players: Player[], matches: Match[]) => {
             history.push({ date, ratings: snapshot });
         }
     };
-    
-    const processedMonths = new Set<string>();
-    
-    for (let i = 0; i < sortedMatches.length; i++) {
-        const match = sortedMatches[i];
+
+    // 2. Loop
+    for (const match of sortedMatches) {
         const matchDate = match.date.split('T')[0];
 
         // B. Handle Match Rating Change
@@ -611,6 +578,12 @@ export const getDailyRatingHistory = (players: Player[], matches: Match[]) => {
                     if (!p) return;
                     let currentRating = p.tournamentRating || 3.0;
                 let step = RATING_STEP_V1;
+                if (isWin && (match.type === 'tournament' || match.type === 'tour')) {
+                    const month = match.date.slice(0, 7);
+                    if (p.trophies && p.trophies.some(t => t.month === month)) {
+                        step *= 2;
+                    }
+                }
                 if (isWin) currentRating = Math.min(MAX_RATING_V1, currentRating + step);
                 else currentRating = Math.max(MIN_RATING_V1, currentRating - step);
                     p.tournamentRating = Math.round(currentRating * 100) / 100;
@@ -646,6 +619,12 @@ export const getDailyRatingHistory = (players: Player[], matches: Match[]) => {
                     W = w_me / (w_me + w_partner);
                 }
                 let change = Math.min(V2_MAX_CHANGE, Math.max(-V2_MAX_CHANGE, W * teamChange));
+            if (change > 0 && (match.type === 'tournament' || match.type === 'tour')) {
+                const month = match.date.slice(0, 7);
+                if (p.trophies && p.trophies.some(t => t.month === month)) {
+                    change *= 2;
+                }
+            }
             pendingUpdates.set(pid, change);
             };
 
@@ -662,34 +641,11 @@ export const getDailyRatingHistory = (players: Player[], matches: Match[]) => {
             });
         }
 
+        // Apply BONUS immediately if this is the last tournament match
 
-        // C. Snapshot after every match
+        // C. Snapshot after every match (optimized: only if date changes or end of loop logic, but simplest is update entry for date)
         takeSnapshot(matchDate);
-
-        // Apply BONUS immediately if this is the last match of the month
-        const nextMatch = sortedMatches[i + 1];
-        if (!nextMatch || nextMatch.date.slice(0, 7) !== match.date.slice(0, 7)) {
-            const month = match.date.slice(0, 7);
-            const rMatches = roundRobinMatchesByMonth.get(month) || [];
-            applyRoundRobinBonuses(month, rMatches, playerMap);
-            applyTourBonuses(month, playerMap);
-            processedMonths.add(month);
-            // Snapshot again after bonuses
-            takeSnapshot(matchDate);
-        }
     }
-
-    // Apply bonuses for months that had NO matches but have cups
-    const unprocessedMonths = new Set<string>();
-    players.forEach(p => {
-        if (p.trophies) p.trophies.forEach(t => {
-            if (!processedMonths.has(t.month)) unprocessedMonths.add(t.month);
-        });
-    });
-    Array.from(unprocessedMonths).sort().forEach(month => {
-        applyTourBonuses(month, playerMap);
-        takeSnapshot(month + '-28'); // Arbitrary date for snapshot
-    });
 
     return history;
 };
@@ -710,26 +666,20 @@ export const getPlayerRatingHistory = (playerId: string, players: Player[], matc
     });
 
     const sortedMatches = [...matches].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-
-
-    // --- PRE-CALCULATE TOURNAMENT TRIGGERS ---
-    const roundRobinMatchesByMonth = new Map<string, Match[]>();
-    
-    sortedMatches.forEach(m => {
-        const month = m.date.slice(0, 7);
-        if (m.type === 'tournament') {
-            if (!roundRobinMatchesByMonth.has(month)) roundRobinMatchesByMonth.set(month, []);
-            roundRobinMatchesByMonth.get(month)!.push(m);
-        }
-    });
-
-    const processedMonths = new Set<string>();
-
-
-    
-    // 2. Loop
-    for (let i = 0; i < sortedMatches.length; i++) {
-        const match = sortedMatches[i];
+  // --- PRE-CALCULATE TOURNAMENT TRIGGERS ---
+  const tournamentEndTriggers = new Set<string>();
+  const tournamentMatchesByMonth = new Map<string, Match[]>();
+  sortedMatches.forEach(m => {
+      if (m.type === 'tournament' || m.type === 'tour') {
+          const month = m.date.slice(0, 7);
+          if (!tournamentMatchesByMonth.has(month)) tournamentMatchesByMonth.set(month, []);
+          tournamentMatchesByMonth.get(month)!.push(m);
+      }
+  });
+  tournamentMatchesByMonth.forEach((list) => {
+      if (list.length > 0) tournamentEndTriggers.add(list[list.length - 1].id);
+  });
+  for (const match of sortedMatches) {
         let s1 = Number(match.score1);
         let s2 = Number(match.score2);
         if (isNaN(s1) || isNaN(s2) || s1 < 0 || s2 < 0 || s1 === s2) continue;
@@ -797,6 +747,12 @@ export const getPlayerRatingHistory = (playerId: string, players: Player[], matc
                     W = w_me / (w_me + w_partner);
                 }
                 let change = Math.min(V2_MAX_CHANGE, Math.max(-V2_MAX_CHANGE, W * teamChange));
+            if (change > 0 && (match.type === 'tournament' || match.type === 'tour')) {
+                const month = match.date.slice(0, 7);
+                if (p.trophies && p.trophies.some(t => t.month === month)) {
+                    change *= 2;
+                }
+            }
             pendingUpdates.set(pid, change);
             };
 
@@ -826,28 +782,8 @@ export const getPlayerRatingHistory = (playerId: string, players: Player[], matc
             });
         }
 
-
-        // Apply BONUS immediately if this is the last match of the month
-        const nextMatch = sortedMatches[i + 1];
-        if (!nextMatch || nextMatch.date.slice(0, 7) !== match.date.slice(0, 7)) {
-            const month = match.date.slice(0, 7);
-            const rMatches = roundRobinMatchesByMonth.get(month) || [];
-            applyRoundRobinBonuses(month, rMatches, playerMap);
-            applyTourBonuses(month, playerMap);
-            processedMonths.add(month);
-        }
+        // Apply BONUS immediately if this is the last tournament match
     }
-
-    // Apply bonuses for months that had NO matches but have cups
-    const unprocessedMonths = new Set<string>();
-    players.forEach(p => {
-        if (p.trophies) p.trophies.forEach(t => {
-            if (!processedMonths.has(t.month)) unprocessedMonths.add(t.month);
-        });
-    });
-    Array.from(unprocessedMonths).sort().forEach(month => {
-        applyTourBonuses(month, playerMap);
-    });
 
     return history;
 };
@@ -864,6 +800,19 @@ export const getMatchRatingDetails = (matchId: string, matches: Match[], players
 
     // 2. Sort matches chronologically
     const sortedMatches = [...matches].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+  // --- PRE-CALCULATE TOURNAMENT TRIGGERS ---
+  const tournamentEndTriggers = new Set<string>();
+  const tournamentMatchesByMonth = new Map<string, Match[]>();
+  sortedMatches.forEach(m => {
+      if (m.type === 'tournament' || m.type === 'tour') {
+          const month = m.date.slice(0, 7);
+          if (!tournamentMatchesByMonth.has(month)) tournamentMatchesByMonth.set(month, []);
+          tournamentMatchesByMonth.get(month)!.push(m);
+      }
+  });
+  tournamentMatchesByMonth.forEach((list) => {
+      if (list.length > 0) tournamentEndTriggers.add(list[list.length - 1].id);
+  });
 
     // 3. Find target match index
     const targetMatchIndex = sortedMatches.findIndex(m => m.id === matchId);
@@ -880,63 +829,9 @@ export const getMatchRatingDetails = (matchId: string, matches: Match[], players
         isRule2: false, players: [] 
     };
 
-
-    // --- PRE-CALCULATE TOURNAMENT TRIGGERS ---
-    const roundRobinEndTriggers = new Set<string>();
-    const roundRobinMatchesByMonth = new Map<string, Match[]>();
-    
-    const tourEndTriggers = new Set<string>();
-    const tourMatchesByMonth = new Map<string, Match[]>();
-
-    sortedMatches.forEach(m => {
-        const month = m.date.slice(0, 7);
-        if (m.type === 'tournament') {
-            if (!roundRobinMatchesByMonth.has(month)) roundRobinMatchesByMonth.set(month, []);
-            roundRobinMatchesByMonth.get(month)!.push(m);
-        } else if (m.type === 'tour') {
-            if (!tourMatchesByMonth.has(month)) tourMatchesByMonth.set(month, []);
-            tourMatchesByMonth.get(month)!.push(m);
-        }
-    });
-
-    roundRobinMatchesByMonth.forEach((list) => {
-        if (list.length > 0) roundRobinEndTriggers.add(list[list.length - 1].id);
-    });
-    
-    tourMatchesByMonth.forEach((list) => {
-        if (list.length > 0) tourEndTriggers.add(list[list.length - 1].id);
-    });
-
-    const applyBonusSim = (month: string) => {
-        const tMatches = roundRobinMatchesByMonth.get(month) || [];
-        const standings = calculateStandings(tMatches);
-        if (standings.length >= 3) {
-            const N = standings.length;
-            const S = 1 + 0.10 * (N - 5);
-            const baseBonuses: Record<number, number> = { 1: 0.10, 2: 0.07, 3: 0.05 };
-            standings.slice(0, 3).forEach((team, idx) => {
-                const place = idx + 1;
-                const rawBonus = baseBonuses[place] * S;
-                const bonus = Math.min(0.15, Math.round(rawBonus * 100) / 100);
-                
-                team.playerIds.forEach(pid => {
-                    const cur = tempPlayerMap.get(String(pid)) || 3.0;
-                    tempPlayerMap.set(String(pid), Math.round(Math.min(V2_RATING_MAX, Math.max(V2_RATING_MIN, cur + bonus)) * 10000) / 10000);
-                });
-            });
-        }
-        players.forEach(p => {
-            if (p.trophies && p.trophies.some(t => t.month === month)) {
-                const cur = tempPlayerMap.get(String(p.id)) || 3.0;
-                tempPlayerMap.set(String(p.id), Math.round(Math.min(V2_RATING_MAX, Math.max(V2_RATING_MIN, cur + 0.1)) * 10000) / 10000);
-            }
-        });
-    };
-
     // 4. Simulate ALL matches BEFORE the target match to get the "Old Ratings"
     // Also need to account for monthly bonuses in the simulation to be accurate
-  const processedMonths = new Set<string>();
-    for (let i = 0; i < targetMatchIndex; i++) {
+  for (let i = 0; i < targetMatchIndex; i++) {
         const m = sortedMatches[i];
         
         // --- MATCH ELO SIMULATION ---
@@ -975,6 +870,11 @@ export const getMatchRatingDetails = (matchId: string, matches: Match[], players
                      W = wm / (wm + wp);
                  }
                  let finalChg = Math.min(V2_MAX_CHANGE, Math.max(-V2_MAX_CHANGE, W * chg));
+                 if (finalChg > 0 && (m.type === 'tournament' || m.type === 'tour')) {
+                     const month = m.date.slice(0, 7);
+                     const pObj = players.find(x => String(x.id) === pid);
+                     if (pObj && pObj.trophies && pObj.trophies.some(t => t.month === month)) finalChg *= 2;
+                 }
                  // Use 4 decimal places for storage, and CLAMP to min/max
                  const newR = Math.min(V2_RATING_MAX, Math.max(V2_RATING_MIN, oldR + finalChg));
                  pendingUpdates.set(pid, Math.round(newR * 10000) / 10000);
@@ -989,7 +889,13 @@ export const getMatchRatingDetails = (matchId: string, matches: Match[], players
              let change = RATING_STEP_V1;
              t1Ids.forEach(pid => {
                  const current = getR(pid);
-                 const next = Math.min(MAX_RATING_V1, current + (isWin ? change : -change));
+                 let pChange = change;
+                 if (isWin && (m.type === 'tournament' || m.type === 'tour')) {
+                     const month = m.date.slice(0, 7);
+                     const pObj = players.find(x => String(x.id) === pid);
+                     if (pObj && pObj.trophies && pObj.trophies.some(t => t.month === month)) pChange *= 2;
+                 }
+                 const next = Math.min(MAX_RATING_V1, current + (isWin ? pChange : -change));
                  setR(pid, Math.round(next * 100) / 100);
              });
              t2Ids.forEach(pid => {
@@ -1000,25 +906,7 @@ export const getMatchRatingDetails = (matchId: string, matches: Match[], players
         }
 
         // --- APPLY BONUS IF TRIGGER HIT ---
-        const nextMatch = sortedMatches[i + 1];
-        if (!nextMatch || nextMatch.date.slice(0, 7) !== m.date.slice(0, 7)) {
-            const month = m.date.slice(0, 7);
-            applyBonusSim(month);
-            processedMonths.add(month);
-        }
     }
-
-    // Apply bonuses for months that had NO matches but have cups BEFORE targetMatch
-    const targetMonth = targetMatch.date.slice(0, 7);
-    const unprocessedMonths = new Set<string>();
-    players.forEach(p => {
-        if (p.trophies) p.trophies.forEach(t => {
-            if (!processedMonths.has(t.month) && t.month < targetMonth) unprocessedMonths.add(t.month);
-        });
-    });
-    Array.from(unprocessedMonths).sort().forEach(month => {
-        applyBonusSim(month);
-    });
 
     // 5. Calculate Details for TARGET Match
     const t1Ids = targetMatch.team1.map(String);
@@ -1049,6 +937,11 @@ export const getMatchRatingDetails = (matchId: string, matches: Match[], players
             W = wm / (wm + wp);
         }
         let change = Math.min(V2_MAX_CHANGE, Math.max(-V2_MAX_CHANGE, W * teamChange));
+        if (change > 0 && (targetMatch.type === 'tournament' || targetMatch.type === 'tour')) {
+            const month = targetMatch.date.slice(0, 7);
+            const pObj = players.find(x => String(x.id) === pid);
+            if (pObj && pObj.trophies && pObj.trophies.some(t => t.month === month)) change *= 2;
+        }
         // Use 4 decimal places for consistency
         const newR = Math.round(Math.min(V2_RATING_MAX, Math.max(V2_RATING_MIN, oldR + change)) * 10000) / 10000;
         

@@ -1,0 +1,161 @@
+    
+    // Init map with initial ratings
+    players.forEach(p => {
+        const rawInitial = Number(p.initialPoints);
+        const baseRating = (!isNaN(rawInitial) && rawInitial < 10 && rawInitial > 0) ? rawInitial : 3.0;
+        playerMap.set(String(p.id), { 
+            ...p, 
+            tournamentRating: baseRating
+        });
+    });
+
+    const sortedMatches = [...matches].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+
+    // --- PRE-CALCULATE TOURNAMENT TRIGGERS ---
+    const roundRobinMatchesByMonth = new Map<string, Match[]>();
+    
+    sortedMatches.forEach(m => {
+        const month = m.date.slice(0, 7);
+        if (m.type === 'tournament') {
+            if (!roundRobinMatchesByMonth.has(month)) roundRobinMatchesByMonth.set(month, []);
+            roundRobinMatchesByMonth.get(month)!.push(m);
+        }
+    });
+
+    // Function to snapshot
+    const takeSnapshot = (date: string) => {
+        const snapshot: Record<string, number> = {};
+        playerMap.forEach(p => {
+            snapshot[p.id] = p.tournamentRating || 3.0;
+        });
+        
+        // If snapshot for this date already exists, update it (last state of day)
+        const existing = history.find(h => h.date === date);
+        if (existing) {
+            existing.ratings = snapshot;
+        } else {
+            history.push({ date, ratings: snapshot });
+        }
+    };
+
+    const processedMonths = new Set<string>();
+
+    // 2. Loop
+    for (let i = 0; i < sortedMatches.length; i++) {
+        const match = sortedMatches[i];
+        let s1 = Number(match.score1);
+        let s2 = Number(match.score2);
+        if (isNaN(s1) || isNaN(s2) || s1 < 0 || s2 < 0 || s1 === s2) continue;
+
+        const isTeam1Winner = s1 > s2;
+        const team1Ids = [...new Set(match.team1)].map(String);
+        const team2Ids = [...new Set(match.team2)].map(String);
+        
+        const mDateObj = new Date(match.date);
+        const isEligibleForPoints = mDateObj.getTime() >= RATING_START_DATE.getTime();
+        const isLegacyV1 = isEligibleForPoints && mDateObj.getTime() < RATING_RULE_2_DATE.getTime();
+        const isRuleV2 = mDateObj.getTime() >= RATING_RULE_2_DATE.getTime();
+
+        // Capture rating BEFORE update if player is involved
+        const isPlayerInvolved = team1Ids.includes(playerId) || team2Ids.includes(playerId);
+        let ratingBefore = 0;
+        let myChange = 0; // Track exact change for this player
+
+        if (isPlayerInvolved) {
+             ratingBefore = playerMap.get(playerId)?.tournamentRating || 3.0;
+        }
+
+        if (isLegacyV1) {
+            const applyLegacy = (ids: string[], isWin: boolean) => {
+                ids.forEach(pid => {
+                    const p = playerMap.get(pid);
+                    if (!p) return;
+                    let currentRating = p.tournamentRating || 3.0;
+                    const oldR = currentRating;
+                    if (isWin) currentRating = Math.min(MAX_RATING_V1, currentRating + RATING_STEP_V1);
+                    else currentRating = Math.max(MIN_RATING_V1, currentRating - RATING_STEP_V1);
+                    
+                    const newR = Math.round(currentRating * 100) / 100;
+                    p.tournamentRating = newR;
+
+                    if (pid === playerId) myChange = newR - oldR;
+                });
+            };
+            applyLegacy(team1Ids, isTeam1Winner);
+            applyLegacy(team2Ids, !isTeam1Winner);
+        } else if (isRuleV2) {
+            const getR = (pid: string) => playerMap.get(pid)?.tournamentRating || 3.0;
+            const getTeamRating = (ids: string[]) => ids.length ? ids.reduce((acc, pid) => acc + getR(pid), 0) / ids.length : 3.0;
+
+            const TA = getTeamRating(team1Ids);
+            const TB = getTeamRating(team2Ids);
+            const ExpectedA = 1 / (1 + Math.exp(-(TA - TB) / V2_TAU));
+            const ResultA = isTeam1Winner ? 1 : 0;
+            const MarginFactor = Math.min(1.20, Math.max(0.85, 1 + V2_ALPHA * ((Math.abs(s1 - s2) / V2_WIN_SCORE) - 0.25)));
+            
+            const TeamChangeA = V2_K * (ResultA - ExpectedA) * MarginFactor;
+
+            const pendingUpdates = new Map<string, number>();
+
+            const calculateUpdate = (pid: string, teamAvg: number, teamChange: number, teammateIds: string[]) => {
+                const p = playerMap.get(pid);
+                if (!p) return;
+                const R_old = p.tournamentRating || 3.0;
+                let W = 1.0;
+                const partnerId = teammateIds.find(id => id !== pid);
+                if (partnerId) {
+                    const R_partner = getR(partnerId);
+                    const w_me = Math.exp(-V2_BETA * (R_old - teamAvg));
+                    const w_partner = Math.exp(-V2_BETA * (R_partner - teamAvg));
+                    W = w_me / (w_me + w_partner);
+                }
+                let change = Math.min(V2_MAX_CHANGE, Math.max(-V2_MAX_CHANGE, W * teamChange));
+            pendingUpdates.set(pid, change);
+            };
+
+            team1Ids.forEach(pid => calculateUpdate(pid, TA, TeamChangeA, team1Ids));
+            team2Ids.forEach(pid => calculateUpdate(pid, TB, -TeamChangeA, team2Ids));
+
+            pendingUpdates.forEach((change, pid) => {
+                const p = playerMap.get(pid);
+                if (p) {
+                    const R_old = p.tournamentRating || 3.0;
+                    const newR = Math.round(Math.min(V2_RATING_MAX, Math.max(V2_RATING_MIN, R_old + change)) * 10000) / 10000;
+                    p.tournamentRating = newR;
+
+                    if (pid === playerId) myChange = newR - R_old; // Use EFFECTIVE change
+                }
+            });
+        }
+
+        // Capture rating AFTER match but BEFORE bonus (to match "Detailed Scoring" logic)
+        if (isPlayerInvolved) {
+            const ratingAfter = playerMap.get(playerId)?.tournamentRating || 3.0;
+            history.push({
+                match,
+                ratingBefore,
+                ratingAfter,
+                change: myChange // Use the exact calculated change
+            });
+        }
+
+
+        // Apply BONUS immediately if this is the last tournament match
+        if (roundRobinEndTriggers.has(match.id)) {
+            const month = match.date.slice(0, 7);
+            const rMatches = roundRobinMatchesByMonth.get(month) || [];
+            applyRoundRobinBonuses(month, rMatches, playerMap);
+        }
+        if (tourEndTriggers.has(match.id)) {
+            const month = match.date.slice(0, 7);
+            const tMatches = tourMatchesByMonth.get(month) || [];
+            applyTourBonuses(month, playerMap);
+        }
+    }
+
+    return history;
+};
+
+// IMPLEMENTED: Re-simulation to get exact match calculation details
+export const getMatchRatingDetails = (matchId: string, matches: Match[], players: Player[]): RatingCalculationLog | null => {

@@ -345,12 +345,14 @@ const App: React.FC = () => {
       
       const newPlayer = { ...playerToUpdate, ...updates };
       
-      const updatedPlayers = players.map(p => 
+      const updatedPlayersBase = players.map(p => 
           p.id === id ? newPlayer : p
       );
       
-      setPlayers(updatedPlayers);
-      savePlayers(updatedPlayers);
+      const recalculatedPlayers = calculatePlayerStats(updatedPlayersBase, matches);
+      
+      setPlayers(recalculatedPlayers);
+      savePlayers(recalculatedPlayers);
       
       await addPlayerToCloud(newPlayer);
   };

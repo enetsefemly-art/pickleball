@@ -156,7 +156,7 @@ export const PlayerManager: React.FC<PlayerManagerProps> = ({
                         </div>
                          <div className="flex flex-col">
                             <span className="text-slate-400 font-medium uppercase text-[10px]">Cúp</span>
-                            <span className="font-bold text-yellow-600">{player.trophies?.length || 0}</span>
+                            <span className="font-bold text-yellow-600">{player.championships || 0}</span>
                         </div>
                     </div>
                     

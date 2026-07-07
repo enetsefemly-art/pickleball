@@ -1,0 +1,92 @@
+             };
+             
+             t1Ids.forEach(pid => calculateUpdate(pid, TA, TCA, t1Ids));
+             t2Ids.forEach(pid => calculateUpdate(pid, TB, -TCA, t2Ids));
+
+             pendingUpdates.forEach((newR, pid) => setR(pid, newR));
+        } else if (isEligible) {
+             // V1 Logic Simplified (Only if date eligible)
+             let change = RATING_STEP_V1;
+             t1Ids.forEach(pid => {
+                 const current = getR(pid);
+                 const next = Math.min(MAX_RATING_V1, current + (isWin ? change : -change));
+                 setR(pid, Math.round(next * 100) / 100);
+             });
+             t2Ids.forEach(pid => {
+                 const current = getR(pid);
+                 const next = Math.max(MIN_RATING_V1, current + (!isWin ? change : -change));
+                 setR(pid, Math.round(next * 100) / 100);
+             });
+        }
+
+        // --- APPLY BONUS IF TRIGGER HIT ---
+
+        if (roundRobinEndTriggers.has(m.id)) {
+            applyBonusSim(m.date.slice(0, 7), 'tournament');
+        }
+        if (tourEndTriggers.has(m.id)) {
+            applyBonusSim(m.date.slice(0, 7), 'tour');
+        }
+    }
+
+    // 5. Calculate Details for TARGET Match
+    const t1Ids = targetMatch.team1.map(String);
+    const t2Ids = targetMatch.team2.map(String);
+    const getR = (id: string) => tempPlayerMap.get(id) || 3.0;
+    
+    const TA = t1Ids.length ? t1Ids.reduce((a,b) => a + getR(b), 0) / t1Ids.length : 3.0;
+    const TB = t2Ids.length ? t2Ids.reduce((a,b) => a + getR(b), 0) / t2Ids.length : 3.0;
+    const ExpectedA = 1 / (1 + Math.exp(-(TA - TB) / V2_TAU));
+    
+    let s1 = Number(targetMatch.score1);
+    let s2 = Number(targetMatch.score2);
+    const isWin = s1 > s2;
+    const ResultA = isWin ? 1 : 0;
+    const MarginFactor = Math.min(1.20, Math.max(0.85, 1 + V2_ALPHA * ((Math.abs(s1 - s2) / V2_WIN_SCORE) - 0.25)));
+    const TeamChangeA = V2_K * (ResultA - ExpectedA) * MarginFactor;
+
+    const playerDetails: RatingCalculationLog['players'] = [];
+
+    const processPlayer = (pid: string, team: 1 | 2, teamAvg: number, teamChange: number, partners: string[]) => {
+        const oldR = getR(pid);
+        const partnerId = partners.find(id => id !== pid);
+        let W = 1.0;
+        if (partnerId) {
+            const Rp = getR(partnerId);
+            const wm = Math.exp(-V2_BETA * (oldR - teamAvg));
+            const wp = Math.exp(-V2_BETA * (Rp - teamAvg));
+            W = wm / (wm + wp);
+        }
+        let change = Math.min(V2_MAX_CHANGE, Math.max(-V2_MAX_CHANGE, W * teamChange));
+        // Use 4 decimal places for consistency
+        const newR = Math.round(Math.min(V2_RATING_MAX, Math.max(V2_RATING_MIN, oldR + change)) * 10000) / 10000;
+        
+        const pName = players.find(p => String(p.id) === pid)?.name || pid;
+        
+        playerDetails.push({
+            id: pid,
+            name: pName,
+            team,
+            oldRating: oldR,
+            newRating: newR,
+            change: newR - oldR, // Return EFFECTIVE change
+            weight: W
+        });
+    };
+
+    t1Ids.forEach(pid => processPlayer(pid, 1, TA, TeamChangeA, t1Ids));
+    t2Ids.forEach(pid => processPlayer(pid, 2, TB, -TeamChangeA, t2Ids));
+
+    return {
+        scoreA: s1,
+        scoreB: s2,
+        teamA_Rating: TA,
+        teamB_Rating: TB,
+        diff: TA - TB,
+        expectedA: ExpectedA,
+        marginFactor: MarginFactor,
+        teamChangeA: TeamChangeA,
+        isRule2: true,
+        players: playerDetails
+    };
+};
