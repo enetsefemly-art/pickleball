@@ -363,10 +363,13 @@ const applyTourBonuses = (
     playerMap.forEach(p => {
         // If the player has a cup (any cup) for this month, they get +0.1
         // The user says "Điểm cộng thêm 0.1 cho tất cả những người có dữ liệu cup của tháng trong bộ sưu tập cúp."
-        if (p.trophies && p.trophies.some(t => t.month === monthKey)) {
-            const currentRating = p.tournamentRating || 3.0;
-            const updatedRating = Math.min(V2_RATING_MAX, Math.max(V2_RATING_MIN, currentRating + 0.1));
-            p.tournamentRating = Math.round(updatedRating * 10000) / 10000;
+        if (p.trophies) {
+            const cupsInMonth = p.trophies.filter(t => t.month === monthKey).length;
+            if (cupsInMonth > 0) {
+                const currentRating = p.tournamentRating || 3.0;
+                const updatedRating = Math.min(V2_RATING_MAX, Math.max(V2_RATING_MIN, currentRating + (0.1 * cupsInMonth)));
+                p.tournamentRating = Math.round(updatedRating * 10000) / 10000;
+            }
         }
     });
 };
@@ -926,9 +929,12 @@ export const getMatchRatingDetails = (matchId: string, matches: Match[], players
             });
         }
         players.forEach(p => {
-            if (p.trophies && p.trophies.some(t => t.month === month)) {
-                const cur = tempPlayerMap.get(String(p.id)) || 3.0;
-                tempPlayerMap.set(String(p.id), Math.round(Math.min(V2_RATING_MAX, Math.max(V2_RATING_MIN, cur + 0.1)) * 10000) / 10000);
+            if (p.trophies) {
+                const cupsInMonth = p.trophies.filter(t => t.month === month).length;
+                if (cupsInMonth > 0) {
+                    const cur = tempPlayerMap.get(String(p.id)) || 3.0;
+                    tempPlayerMap.set(String(p.id), Math.round(Math.min(V2_RATING_MAX, Math.max(V2_RATING_MIN, cur + (0.1 * cupsInMonth))) * 10000) / 10000);
+                }
             }
         });
     };

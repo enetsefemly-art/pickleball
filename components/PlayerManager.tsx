@@ -21,7 +21,7 @@ export const PlayerManager: React.FC<PlayerManagerProps> = ({
   onUpdatePlayer
 }) => {
   const [newName, setNewName] = useState('');
-  const [initialPoints, setInitialPoints] = useState('1000');
+  const [initialPoints, setInitialPoints] = useState('3.0');
   
   // State for Player Profile Modal
   const [selectedPlayerId, setSelectedPlayerId] = useState<string | null>(null);
@@ -49,10 +49,10 @@ export const PlayerManager: React.FC<PlayerManagerProps> = ({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (newName.trim()) {
-      const points = parseInt(initialPoints) || 1000;
+      const points = parseFloat(initialPoints) || 3.0;
       onAddPlayer(newName.trim(), points);
       setNewName('');
-      setInitialPoints('1000');
+      setInitialPoints('3.0');
     }
   };
 
@@ -88,6 +88,7 @@ export const PlayerManager: React.FC<PlayerManagerProps> = ({
                 />
                 <input
                     type="number"
+                    step="0.1"
                     value={initialPoints}
                     onChange={(e) => setInitialPoints(e.target.value)}
                     placeholder="Điểm gốc..."
