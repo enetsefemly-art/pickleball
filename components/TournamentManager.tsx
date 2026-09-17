@@ -937,6 +937,7 @@ const TeamMatchManager: React.FC<TournamentManagerProps> = ({
     onSaveMatches
 }) => {
     const [step, setStep] = useState<'setup' | 'teams' | 'schedule' | 'play'>('setup');
+    const [confirmBackTarget, setConfirmBackTarget] = useState<'setup' | 'teams' | null>(null);
     
     // Setup State
     const [selectedPlayerIds, setSelectedPlayerIds] = useState<string[]>([]);
@@ -1060,6 +1061,12 @@ const TeamMatchManager: React.FC<TournamentManagerProps> = ({
             return;
         }
 
+        if (groups.length > 0) {
+            if (!window.confirm("Việc chia lại đội sẽ XÓA BỎ các sắp xếp và tinh chỉnh đội hình trước đó. Bạn có chắc chắn muốn TẠO MỚI đội?")) {
+                return;
+            }
+        }
+
         const pool = selectedPlayerIds.map(id => players.find(p => String(p.id) === id)!).sort((a, b) => (b.tournamentRating || 3.0) - (a.tournamentRating || 3.0));
         
         const newGroups: TeamGroup[] = Array.from({ length: numTeams }, (_, i) => ({
@@ -1081,6 +1088,12 @@ const TeamMatchManager: React.FC<TournamentManagerProps> = ({
     };
 
     const handleStartTournament = () => {
+        if (tournamentData?.isActive) {
+            if (!window.confirm("Giải đấu đang diễn ra. Việc tạo mới sẽ XÓA BỎ LỊCH SỬ trận đấu hiện tại. Bạn có chắc chắn muốn TẠO MỚI giải đấu?")) {
+                return;
+            }
+        }
+
         const initialSchedule: TeamMatchScheduleItem[] = [];
         
         const initialDrafts: TeamDraftTurn[] = Array.from({length: numTurns}, (_, i) => ({
@@ -1348,6 +1361,38 @@ const TeamMatchManager: React.FC<TournamentManagerProps> = ({
         return sum / g.players.length;
     };
 
+    const confirmModal = confirmBackTarget ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm animate-fade-in">
+            <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden animate-slide-up">
+                <div className="p-6">
+                    <h3 className="text-lg font-bold text-slate-800 mb-2">Xác nhận quay lại</h3>
+                    <p className="text-slate-600 text-sm mb-6">
+                        {confirmBackTarget === 'setup' 
+                            ? 'Dữ liệu chia đội hiện tại sẽ bị mất nếu bạn quay lại để thay đổi danh sách người chơi. Bạn có chắc chắn muốn quay lại?'
+                            : 'Dữ liệu trận đấu đang nhập có thể bị mất hoặc thay đổi nếu bạn chia lại đội. Bạn có chắc chắn muốn quay lại?'}
+                    </p>
+                    <div className="flex gap-3">
+                        <button
+                            onClick={() => setConfirmBackTarget(null)}
+                            className="flex-1 px-4 py-2 bg-slate-100 text-slate-700 font-bold rounded-lg hover:bg-slate-200 transition-colors"
+                        >
+                            Hủy
+                        </button>
+                        <button
+                            onClick={() => {
+                                setStep(confirmBackTarget);
+                                setConfirmBackTarget(null);
+                            }}
+                            className="flex-1 px-4 py-2 bg-red-600 text-white font-bold rounded-lg hover:bg-red-700 transition-colors"
+                        >
+                            Đồng ý
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    ) : null;
+
     if (step === 'setup') {
         const isAllSelected = activePlayers.every(p => selectedPlayerIds.includes(String(p.id)));
         return (
@@ -1423,13 +1468,23 @@ const TeamMatchManager: React.FC<TournamentManagerProps> = ({
                                 Hiện cả người ẩn
                             </label>
                         </div>
-                        <button 
-                            onClick={handleSplitTeams}
-                            disabled={selectedPlayerIds.length < numTeams}
-                            className="px-6 py-2 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 disabled:opacity-50 ml-auto"
-                        >
-                            Chia Đội Ngay
-                        </button>
+                        <div className="flex gap-2 ml-auto">
+                            {groups.length > 0 && (
+                                <button 
+                                    onClick={() => setStep('teams')}
+                                    className="px-6 py-2 bg-slate-200 text-slate-700 font-bold rounded-lg hover:bg-slate-300 transition-colors"
+                                >
+                                    Tiếp tục (Giữ nguyên)
+                                </button>
+                            )}
+                            <button 
+                                onClick={handleSplitTeams}
+                                disabled={selectedPlayerIds.length < numTeams}
+                                className="px-6 py-2 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 disabled:opacity-50"
+                            >
+                                Chia Đội Ngay
+                            </button>
+                        </div>
                     </div>
                 </div>
 
@@ -1465,7 +1520,9 @@ const TeamMatchManager: React.FC<TournamentManagerProps> = ({
             <div className="space-y-6 animate-fade-in">
                 {/* Back Button */}
                 <button 
-                    onClick={() => setStep('setup')} 
+                    onClick={() => {
+                        setConfirmBackTarget('setup');
+                    }} 
                     className="flex items-center gap-2 text-slate-500 hover:text-slate-800 transition-colors group"
                 >
                     <div className="p-2 bg-white rounded-full shadow-sm border border-slate-200 group-hover:border-slate-300 group-hover:shadow-md transition-all">
@@ -1474,7 +1531,12 @@ const TeamMatchManager: React.FC<TournamentManagerProps> = ({
                     <span className="font-bold text-sm uppercase tracking-wide">Quay lại chọn người</span>
                 </button>
 
-                <div className="flex justify-end items-center bg-white p-4 rounded-xl shadow-sm">
+                <div className="flex justify-end items-center gap-3 bg-white p-4 rounded-xl shadow-sm">
+                    {tournamentData?.isActive && (
+                        <button onClick={() => setStep('play')} className="px-6 py-3 bg-slate-200 text-slate-700 font-bold rounded-lg hover:bg-slate-300 transition-all">
+                            Tiếp tục (Giữ nguyên)
+                        </button>
+                    )}
                     <button onClick={handleStartTournament} className="px-6 py-3 bg-green-600 text-white font-bold rounded-lg hover:bg-green-700 flex items-center gap-2 shadow-lg shadow-green-200 transition-all active:scale-95 animate-bounce">
                         BẮT ĐẦU GIẢI ĐẤU <Play className="w-5 h-5" />
                     </button>
@@ -1642,6 +1704,7 @@ const TeamMatchManager: React.FC<TournamentManagerProps> = ({
                 <div className="text-center text-xs text-slate-400 italic mt-4">
                     * Bấm vào tên người chơi để đổi chỗ giữa các đội
                 </div>
+                {confirmModal}
             </div>
         );
     }
@@ -1706,7 +1769,9 @@ const TeamMatchManager: React.FC<TournamentManagerProps> = ({
         <div className="space-y-6 animate-fade-in">
             {/* Back Button */}
             <button 
-                onClick={() => setStep('teams')} 
+                onClick={() => {
+                    setConfirmBackTarget('teams');
+                }} 
                 className="flex items-center gap-2 text-slate-500 hover:text-slate-800 transition-colors group"
             >
                 <div className="p-2 bg-white rounded-full shadow-sm border border-slate-200 group-hover:border-slate-300 group-hover:shadow-md transition-all">
@@ -2047,6 +2112,8 @@ const TeamMatchManager: React.FC<TournamentManagerProps> = ({
                     </Card>
                 ))}
             </div>
+
+            {confirmModal}
         </div>
     );
 };
